@@ -7,3 +7,4 @@
 2. [MVP scope](docs/mvp-scope.md)
 3. [Data sources](docs/data-sources.md)
 4. [Technical requirements](docs/technical-requirements.md)
+5. [Schema v2 (study redesign)](docs/schema-v2/README.md)
