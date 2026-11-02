@@ -29,4 +29,4 @@ Routing / walk-time; live occupancy of chargers or fountains; production multi-t
 
 ## Docs
 
-[MVP scope](mvp-scope.md) · [Data sources](data-sources.md) · [Technical requirements](technical-requirements.md)
+[MVP scope](mvp-scope.md) · [Data sources](data-sources.md) · [Technical requirements](technical-requirements.md) · [Schema v2 study redesign](schema-v2/README.md)
