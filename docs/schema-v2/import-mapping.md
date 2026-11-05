@@ -36,13 +36,23 @@ Every feature: `catalog_id` from upserted catalog row; full GeoJSON properties �
 | `playgrounds` | `playground` | space type |
 | `cemeteries` | `cemetery` | denomination |
 
+## Operators and tags (extra step after insert)
+
+| Source field | Target |
+| --- | --- |
+| Kita `t_name`, `t_art` (key `t_nr`) | `operator` (name, operator_type) → `amenity_points.operator_id` |
+| EV `betreiber`; toilet `betreiber` | `operator` → `operator_id` |
+| EV `anschluss_1..4` (split on `;`) | `tag` (`ev_connector`) + `amenity_point_tag` |
+| Kita `ang_1` (split on `/`) | `tag` (`kita_approach`) + `amenity_point_tag` |
+| Toilet `barrierefrei`, `wickeltisch`, `nutzungsentgelt = 0` | `tag` (`toilet_feature`) for each `ja` |
+
 ## Import algorithm (per layer)
 
 1. Begin transaction.  
 2. Upsert `dataset_catalog` by slug.  
 3. `DELETE FROM amenity_points WHERE kind_code = :kind` (or areas).  
 4. Insert features with `kind_code`, curated columns, `attrs`, `geom` (transform to 25833).  
-5. Assign `district_id` for that kind.  
+5. Assign `district_id` for that kind; upsert operators; upsert tags and insert junction rows (`ON CONFLICT DO NOTHING`).  
 6. Commit (or rollback on failure).
 
 See [acid-and-transactions.md](acid-and-transactions.md).
