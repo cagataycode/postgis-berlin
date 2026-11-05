@@ -79,3 +79,24 @@ Each decision in the plan came from a check on the real data or code, not from p
 - Plan said 17 tables; the real count is 16 plus 3 partitions. Docs corrected.
 - Docker was stopped; started Docker Desktop. The dev `berlin` database was not touched.
 **Report/demo material:** the constraint checks are the "what the database refuses" demo; phase 1 turns them into `tests/test_constraints.py`.
+
+### Phase 1 — Migration `0009_schema_v2` (2026-11-05)
+
+**Goal:** create the v2 schema through Alembic, with tests proving the database enforces its rules.
+**What we did:**
+- Wrote [0009_schema_v2.py](../backend/alembic/versions/0009_schema_v2.py) by hand: lookups, partitioned `amenity_points`, `amenity_areas`, tag tables (both M:N), detail tables, `import_run`, indexes, seeds, `berlin_ro` role. DDL lives in the migration (self-contained); [schema.sql](schema-v2/schema.sql) stays the commented reference.
+- `alembic/env.py`: `include_object` hook so autogenerate never proposes dropping tables that have no model yet (v2 tables until phase 3, partitions always).
+- `app/config.py` + `.env.example`: `DATABASE_URL_RO` for the read-only role.
+- [tests/test_constraints.py](../backend/tests/test_constraints.py): 18 tests, each in a rolled-back transaction with expected failures in savepoints. They assert the **name of the violated constraint**, not just "an error".
+- Ran on a scratch database `schema_v2_mig`: `upgrade` → `downgrade -1` → `upgrade`.
+**How we decided:**
+- Reuse `dataset_catalog`, `districts`, `neighborhoods` as they are: the live columns already match v2 (checked against [models.py](../backend/app/models.py)). The migration creates only new objects, so it is additive and the legacy tables keep working until cutover.
+- `exec_driver_sql` instead of `text()`: avoids `:name` bind parsing of SQL such as `::jsonb`.
+- Read-only role password is a local-dev default (`berlin_ro`); the role is skipped with a notice if the migrating user cannot create roles.
+**Outcome:** 13 new tables + 3 partitions + 1 function + 1 sequence; downgrade removes all of them and the role. `pytest tests/test_constraints.py`: **18 passed**, including `berlin_ro` being unable to `DELETE`. Scratch database holds 0 leftover rows after the run. Existing suite: 19 passed, 23 skipped (no database reachable with the default `.env`), no failures.
+**Problems / changes to plan:**
+- First upgrade failed: psycopg treats `%` as a placeholder even with no parameters, so `format('%I')` had to be written `%%I`. The failed migration rolled back completely (transactional DDL), so the retry started clean.
+- First test run errored: SQLAlchemy 2 autobegins on the first `execute`, so `begin()` after the table-exists check failed. Fixture reordered.
+- First `updated_at` test proved nothing (`now()` is constant inside a transaction). Replaced by a test that writes `updated_at = '2000-01-01'` and checks the trigger overwrites it.
+- The default `.env` points at a local passwordless Postgres, not the Docker container; the migration has **not** been applied to the dev `berlin` database. Run `alembic upgrade head` there before phase 2.
+**Report/demo material:** the 18 constraint tests ("what the database refuses"); `alembic upgrade/downgrade` cycle.
