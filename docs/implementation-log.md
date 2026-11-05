@@ -50,3 +50,32 @@ Each decision in the plan came from a check on the real data or code, not from p
 **Outcome:** design docs and plan committed to the working tree (not yet to git). Nothing in the database has changed.
 **Problems / changes to plan:** the database was not running (Docker down), so row counts come from cache files and `schema.sql` has not been applied yet.
 **Report/demo material:** ERD, data volume table in project-plan.
+
+### Phase 0 — Sync design docs (2026-11-05)
+
+**Goal:** make the design docs match the agreed plan, and prove the DDL works before writing a migration.
+**What we did:**
+- Rewrote [schema.sql](schema-v2/schema.sql) to the target design: 16 tables, `amenity_points` list-partitioned by kind (3 partitions), composite FKs, two M:N relationships, detail tables, `import_run`, update trigger, GiST/btree/GIN indexes, seeds.
+- Rewrote [erd.md](schema-v2/erd.md) (Mermaid, all 16 tables, cardinalities, index table), [normalization.md](schema-v2/normalization.md), [acid-and-transactions.md](schema-v2/acid-and-transactions.md), [indexing-and-explain.md](schema-v2/indexing-and-explain.md) and [import-mapping.md](schema-v2/import-mapping.md); updated the schema README and project plan counts.
+- Started Docker, applied `schema.sql` to a scratch database (`schema_v2_check`, PostGIS 16) with `ON_ERROR_STOP`, ran 13 constraint checks, then dropped it.
+**How we decided:**
+- Dropped the composite GiST `(kind_code, geom)` and the plain `kind_code` btree from the DDL: partition pruning plus the `(kind_code, source_id)` unique index already cover kind lookups. The composite stays as a phase 7 experiment.
+- Identity column replaced by a shared sequence default: `GENERATED ALWAYS AS IDENTITY` on a partitioned parent is awkward, and a sequence also lets us keep one id space across partitions.
+- Detail tables reference `amenity_points (id, kind_code)`, which works because Postgres accepts foreign keys that point at a partitioned table's primary key.
+**Outcome:** the DDL applies cleanly. Constraint checks (all behaved as designed):
+- area kind in `amenity_points` → FK error
+- duplicate `(kind_code, source_id)` → unique error
+- Kita tag on a toilet → FK error on `kind_tag_category`
+- tag with wrong category → FK error
+- wrong kind for a point in the junction → FK error
+- `tree_detail` for a kita → CHECK error
+- `height_m = 0` → CHECK error
+- self-intersecting polygon → CHECK error
+- rows route to `amenity_points_street_tree` / `amenity_points_other`
+- `UPDATE` bumps `updated_at`
+- `WHERE kind_code = 'street_tree'` plans against only the street-tree partition.
+**Problems / changes to plan:**
+- Check 7 first hit the junction primary key, not the FK, so it proved nothing. Re-run with a fresh tag showed the intended FK error.
+- Plan said 17 tables; the real count is 16 plus 3 partitions. Docs corrected.
+- Docker was stopped; started Docker Desktop. The dev `berlin` database was not touched.
+**Report/demo material:** the constraint checks are the "what the database refuses" demo; phase 1 turns them into `tests/test_constraints.py`.
