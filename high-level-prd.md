@@ -8,3 +8,5 @@
 3. [Data sources](docs/data-sources.md)
 4. [Technical requirements](docs/technical-requirements.md)
 5. [Schema v2 (study redesign)](docs/schema-v2/README.md)
+6. [Project plan (module hand-in)](docs/project-plan.md)
+7. [Implementation log](docs/implementation-log.md)
