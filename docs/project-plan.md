@@ -16,13 +16,14 @@ One page that ties the module requirements ([module-requirements/](module-requir
 | Team contribution | solo project: all parts | n/a |
 | Oral demo (15–30 min) | section 6 | prepare after implementation |
 
-## 2. Target schema (v2, 10 tables)
+## 2. Target schema (v2, 16 tables + 3 partitions)
 
-`dataset_catalog` · `amenity_kind` · `districts` · `neighborhoods` · `operator` · `amenity_points` · `amenity_areas` · `tag_category` · `tag` · `amenity_point_tag` (junction)
+`dataset_catalog` · `amenity_kind` · `districts` · `neighborhoods` · `operator` · `amenity_points` (partitioned) · `amenity_areas` · `tag_category` · `tag` · `kind_tag_category` · `amenity_point_tag` · `tree_species` · `tree_detail` · `kita_detail` · `ev_charger_detail` · `import_run`
 
 - Collapses ~15 clone layer tables into `amenity_points` / `amenity_areas` + `kind_code`.
 - `operator` pulls repeated operator facts out of the features (Kita Träger: 1,165 distinct, `t_nr → name, type` has no conflicts; EV `betreiber`: 203).
 - `tag` + `amenity_point_tag` is the many-to-many: EV connectors, Kita pedagogical approaches, toilet features. Replaces values like `Offene-Arbeit/Situationsansatz`.
+- Two M:N relationships (points ⟷ tag, kind ⟷ tag_category); the database checks kind/geometry and tag/kind consistency with composite FKs.
 - Details: [erd.md](schema-v2/erd.md), [schema.sql](schema-v2/schema.sql), [normalization.md](schema-v2/normalization.md).
 
 ## 3. Use cases
@@ -69,7 +70,7 @@ Expected junction rows: ~5,300 EV connector links, ~3,900 Kita approach links, p
 Full plan with phases, acceptance criteria and evidence: [module-requirements/implementation-plan.md](module-requirements/implementation-plan.md). Short version:
 
 
-1. **Migration `0009_schema_v2`**: create the 10 tables and indexes (Alembic, from `schema.sql`).
+1. **Migration `0009_schema_v2`**: create the 16 tables, partitions and indexes (Alembic, from `schema.sql`).
 2. **Import rewrite** (`scripts/import_layers.py`): per layer, one transaction: upsert catalog → delete the kind's rows → insert → assign `district_id` → upsert operators → split multi-valued fields into `tag` / `amenity_point_tag` → commit/rollback.
 3. **Models**: SQLAlchemy models for the new tables, with `relationship()` for the M:N (`secondary=amenity_point_tag`).
 4. **Layer registry + analyses**: query by `kind_code`; density becomes a single `GROUP BY kind_code, district_id`.
