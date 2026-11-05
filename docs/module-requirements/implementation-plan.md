@@ -42,7 +42,7 @@ These findings shape the import and the constraints:
 | Trees: `gisid` unique, 0 nulls (street and park) | Natural key for trees. |
 | Trees: `baumhoehe`, `kronedurch` = 0 means unknown (about 69k street, 95k park) | Import maps 0 to NULL; `CHECK (height_m > 0)`. |
 | Trees: park trees missing `pflanzjahr` 192k, `art_bot` 11k | Nullable detail columns; `species_id` nullable. |
-| Species: 719 street + 835 park botanical names, consistent | `tree_species` about 1.1k rows (sets overlap). |
+| Species: 719 street + 835 park botanical names, consistent | `tree_species` 916 rows (measured in phase 2) (sets overlap). |
 | EV connectors: 7 distinct after splitting on `;` (near-duplicate spellings, e.g. `AC Steckdose Typ 2` / `AC Typ 2 Steckdose`) | Store as published (decided). Note in docs. About 5,300 junction rows. |
 | Kita approaches: 9 distinct after splitting on `/`, 950 kitas with more than one | About 3,900 junction rows. |
 | Kita operators: 1,165 distinct `t_nr`, `t_nr → name, type` consistent | Safe 3NF extraction. |

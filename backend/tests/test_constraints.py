@@ -41,7 +41,7 @@ def _point(conn, kind: str, source_id: str) -> int:
             f"INSERT INTO amenity_points (kind_code, source_id, catalog_id, geom) "
             f"VALUES (:k, :s, :c, {POINT}) RETURNING id"
         ),
-        {"k": kind, "s": source_id, "c": _catalog_id(conn)},
+        {"k": kind, "s": "zz-" + source_id, "c": _catalog_id(conn)},
     ).scalar_one()
 
 
@@ -71,7 +71,7 @@ def test_area_kind_rejected_in_points(conn):
     msg = _rejected(
         conn,
         f"INSERT INTO amenity_points (kind_code, source_id, catalog_id, geom) "
-        f"VALUES ('cemetery', 'c1', {_catalog_id(conn)}, {POINT})",
+        f"VALUES ('cemetery', 'zz-c1', {_catalog_id(conn)}, {POINT})",
     )
     assert "amenity_points_kind_code_geom_family_fkey" in msg
 
@@ -80,7 +80,7 @@ def test_point_kind_rejected_in_areas(conn):
     msg = _rejected(
         conn,
         f"INSERT INTO amenity_areas (kind_code, source_id, catalog_id, geom) VALUES "
-        f"('school', 'x', {_catalog_id(conn)}, "
+        f"('school', 'zz-x', {_catalog_id(conn)}, "
         f"ST_Multi(ST_GeomFromText('POLYGON((0 0,1 0,1 1,0 1,0 0))', 25833)))",
     )
     assert "amenity_areas_kind_code_geom_family_fkey" in msg
@@ -91,7 +91,7 @@ def test_duplicate_source_key_rejected(conn):
     msg = _rejected(
         conn,
         f"INSERT INTO amenity_points (kind_code, source_id, catalog_id, geom) "
-        f"VALUES ('kita', 'k1', {_catalog_id(conn)}, {POINT})",
+        f"VALUES ('kita', 'zz-k1', {_catalog_id(conn)}, {POINT})",
     )
     assert "kind_code_source_id_key" in msg
 
@@ -105,7 +105,7 @@ def test_invalid_polygon_rejected(conn):
     msg = _rejected(
         conn,
         f"INSERT INTO amenity_areas (kind_code, source_id, catalog_id, geom) VALUES "
-        f"('cemetery', 'bow', {_catalog_id(conn)}, "
+        f"('cemetery', 'zz-bow', {_catalog_id(conn)}, "
         f"ST_Multi(ST_GeomFromText('POLYGON((0 0,1 1,1 0,0 1,0 0))', 25833)))",
     )
     assert "amenity_areas_geom_check" in msg
@@ -190,7 +190,7 @@ def test_points_routed_to_partitions(conn):
         conn.execute(
             text(
                 "SELECT tableoid::regclass::text, count(*) FROM amenity_points "
-                "WHERE source_id IN ('s1','p1','sc1') GROUP BY 1"
+                "WHERE source_id IN ('zz-s1','zz-p1','zz-sc1') GROUP BY 1"
             )
         ).all()
     )
