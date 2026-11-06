@@ -92,7 +92,7 @@ docker rm -f berlin-restore && docker volume rm berlin_restore_data
 ### Limits (honest list)
 
 - The archive lives on the same laptop as the database. A real setup copies `backups/` off the machine (object storage, another host).
-- Base backups are taken by hand (`backup_base.sh`); there is no schedule or retention policy.
+- Base backups are taken by hand (`backup_base.sh`); there is no schedule. Retention is `backend/scripts/backup_prune.sh` (keeps the newest 3 base backups, removes WAL older than the oldest kept one; `DRY_RUN=1` previews), also run by hand. `archive_timeout` is 300 s, so an idle database archives one segment per 5 minutes.
 - The drill restores a *cluster*; recovering one table needed the copy-back in step 3.
 - The restore container runs the amd64 image under emulation on Apple silicon (a warning is printed); speed is not representative of a production host.
 

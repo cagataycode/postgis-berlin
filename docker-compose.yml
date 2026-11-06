@@ -16,7 +16,20 @@ services:
       - -c
       - archive_command=test ! -f /backups/wal/%f && cp %p /backups/wal/%f
       - -c
-      - archive_timeout=60
+      - archive_timeout=300
+      # Tuning for a ~1.4 GB database on a laptop (defaults are 128MB / 4MB / 64MB / 4.0).
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - effective_cache_size=2GB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_wal_size=2GB
       - -c
       - shared_preload_libraries=pg_stat_statements
       - -c
