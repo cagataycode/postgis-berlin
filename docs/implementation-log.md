@@ -176,3 +176,21 @@ Each decision in the plan came from a check on the real data or code, not from p
 - The old `/layers/{slug}/sql` tests assumed per-layer tables; they now assert `amenity_points` and the `kind_code` filter.
 - `feature_by_id.sql` is only used for districts and neighborhoods now.
   **Report/demo material:** the SQL files (LATERAL KNN, ROLLUP, `rank()`, `percentile_cont`, `mode()`), the tag AND-filter numbers, `amenities_near`.
+
+### Phase 5 — Frontend (2026-11-06)
+
+**Goal:** make the UI use the v2 schema: glossary and patterns, tag filter, new Compare measures, feature card.
+**What we did:**
+- [exercises.ts](../frontend/src/exercises.ts): glossary rewritten for the v2 tables (16 entries incl. junctions, detail tables, the materialized view and `import_run`). Patterns rewritten for `amenity_points` / `amenity_areas` with `kind_code` filters; 25 patterns, including a many-to-many connector count, a Kita AND-filter, the operator ranking, partition pruning (use Explain), the `amenities_near()` function and the import history.
+- Tag filter: chips under the layer grid for EV chargers, Kitas and toilets (vocabulary from `GET /tags`); selection is sent as repeated `?tag=` and reloads the layer.
+- Compare tab: three new measures, "Top operator (facilities)", "Tree species count", "Median planting year". The density table skips the ROLLUP total row.
+- Feature card: clicking a feature calls `GET /features/{layer}/{id}` (ORM) and shows operator, species, typed detail and tags in the Nearby tab.
+- Query editor: layers are now detected from `kind_code` literals instead of table names; new binds (`:tag_ids`, `:n_tags`, `:top_n`, `:kind`, `:radius_m`, `:limit`) get default values.
+**How we decided:**
+- One tag-chip row per taggable layer instead of a dropdown: tags are few (7 and 9) and AND filtering needs several selected at once.
+- Tree measures load lazily, only when chosen, because `trees-by-borough` takes about 10 s.
+**Outcome (browser check on `schema_v2_real`):** map, layer counts, tag filter, feature card, Nearby and the three new Compare measures work. Selecting the DC CHAdeMO tag cut the EV chargers from 4,960 to 106. All 25 patterns, the 6 analysis SQL files and 3 layer SQL files ran through `POST /sql/run` as the read-only role; the pruning pattern's plan scans only `amenity_points_street_tree`. `tsc` and `vite build` pass. [smoke-test.md](smoke-test.md) is updated.
+**Problems / changes to plan:**
+- React re-applied the `open` attribute on the tag `<details>` after each toggle and closed it; it is now uncontrolled.
+- Not done: the UI has no tag filter for tags on other layers (none exist) and no operator column in the layer popup beyond the feature card.
+**Report/demo material:** the tag chips (M:N in the UI), the feature card (1:1 detail + operator FK), the Compare operator ranking.
