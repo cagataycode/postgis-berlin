@@ -233,3 +233,21 @@ Each decision in the plan came from a check on the real data or code, not from p
 - Timings are from one laptop with 128 MB `shared_buffers`; absolute numbers will differ, ratios are what the report uses.
 **Report/demo material:** the seven plan files; the pruning plan (one node vs three), the KNN plan (no Sort node), the tree-report before/after.
 Full suite on the real-data database after phase 7: 83 passed.
+
+### Phase 8 — Operations: backups and recovery (2026-11-06)
+
+**Goal:** continuous backups (Level 2) and a restore drill run end to end on the real data.
+**What we did:**
+- [docker-compose.yml](../docker-compose.yml): WAL archiving on (`archive_mode=on`, `archive_command` copies segments to `./backups/wal`, `archive_timeout=60`), `./backups` mounted, `pg_stat_statements` preloaded. `backups/` is git-ignored. The database container was recreated once to apply the settings; the data volume was kept.
+- Scripts: [backup_base.sh](../backend/scripts/backup_base.sh) (`pg_basebackup`), [backup_logical.sh](../backend/scripts/backup_logical.sh) (`pg_dump -Fc`), [restore_pitr.sh](../backend/scripts/restore_pitr.sh) (point-in-time recovery into a throwaway container).
+- Migration [0013](../backend/alembic/versions/0013_pg_stat_statements.py) enables `pg_stat_statements`.
+- [operations.md](operations.md): what is in place, the drill with its output, limits, roles, slow-query query.
+**How we decided:**
+- Recover into a **separate container**, then copy rows back, so the live database is never put at risk by the drill.
+- Recovery target by time, because the plan said so; the doc notes that a named restore point is the safer habit.
+**Outcome (real data, 1.4 GB):** base backup 70 s / 225 MB; logical dump 46 s / 80 MB. Drill: noted 11:34:20 UTC, deleted 525 toilets at 11:34:26, recovered to 11:34:20 in 19 s ("recovery stopping before commit of transaction 2144"); the restored copy had 525 toilets and 827 tag links, live had 0. Copying the rows back restored them with identical ids (md5 of the toilet ids and source ids matches). `pg_stat_archiver`: 9 segments archived, 0 failed.
+**Problems / changes to plan:**
+- First restore attempt failed: a fresh Docker volume is root-owned, so unpacking as `postgres` was denied. The script now unpacks as root and then changes ownership.
+- Plan said "owner and `berlin_ro`, the app never connects as a superuser". In this dev setup the API's read endpoints still connect as the owner (a superuser in the Docker image). Written down as a gap in operations.md rather than changed here.
+- The archive sits on the same machine as the database; no schedule or retention. Listed as limits.
+**Report/demo material:** the recovery log lines, the 525 → 0 → 525 counts with the matching md5, the base backup and dump sizes.

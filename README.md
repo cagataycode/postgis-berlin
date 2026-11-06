@@ -83,4 +83,4 @@ cd backend && source .venv/bin/activate
 pytest -q        # DB-backed tests need the database up (docker compose up -d); they skip cleanly otherwise
 ```
 
-Migrations: `alembic upgrade head` applies 0001–0011 in order; 0011 drops the legacy per-layer tables, so on a fresh database they are created and dropped again. Visible SQL: [backend/sql/](backend/sql/) — explore with ready Patterns, the schema Glossary, and free SQL in the Query tab. Smoke checklist: [docs/smoke-test.md](docs/smoke-test.md).
+Backups, point-in-time recovery drill and roles: [docs/operations.md](docs/operations.md). Migrations: `alembic upgrade head` applies 0001–0013 in order; 0011 drops the legacy per-layer tables, so on a fresh database they are created and dropped again. Visible SQL: [backend/sql/](backend/sql/) — explore with ready Patterns, the schema Glossary, and free SQL in the Query tab. Smoke checklist: [docs/smoke-test.md](docs/smoke-test.md).
