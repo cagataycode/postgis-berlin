@@ -71,7 +71,7 @@ Full plan with phases, acceptance criteria and evidence: [module-requirements/im
 
 
 1. **Migration `0009_schema_v2`**: create the 16 tables, partitions and indexes (Alembic, from `schema.sql`).
-2. **Import rewrite** (`scripts/import_layers.py`): per layer, one transaction: upsert catalog → delete the kind's rows → insert → assign `district_id` → upsert operators → split multi-valued fields into `tag` / `amenity_point_tag` → commit/rollback.
+2. **Import rewrite** (`scripts/import_v2.py`): per layer, one transaction: upsert catalog → delete the kind's rows → insert → assign `district_id` → upsert operators → split multi-valued fields into `tag` / `amenity_point_tag` → commit/rollback.
 3. **Models**: SQLAlchemy models for the new tables, with `relationship()` for the M:N (`secondary=amenity_point_tag`).
 4. **Layer registry + analyses**: query by `kind_code`; density becomes a single `GROUP BY kind_code, district_id`.
 5. **New endpoints for U7/U8**: `GET /layers/ev_charger?connector=…`, `GET /analyses/operators`.

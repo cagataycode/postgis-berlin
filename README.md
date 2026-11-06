@@ -25,12 +25,11 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-alembic upgrade head
-python -m scripts.import_layers                 # Berlin open data → PostGIS (default)
-# python -m scripts.import_layers --source samples  # tiny offline fixtures only
-# Skip tree inventories for a faster first open-data import:
-# python -m scripts.import_layers --layers districts,green_spaces,schools,bike_parking,ev_chargers,drinking_fountains,bathing_waters,toilets,playgrounds,sports_facilities,kitas,hospitals,cemeteries,park_and_ride
-# (omit trees/park_trees for a quick smoke run — full tree import is large)
+alembic upgrade head                            # creates the v2 schema (migrations 0001–0011)
+python -m scripts.import_v2                     # Berlin open data → PostGIS (default, ~40 min incl. trees)
+# python -m scripts.import_v2 --source samples  # tiny offline fixtures only (seconds)
+# Skip the two tree inventories (about 960k rows) for a quick first run:
+# python -m scripts.import_v2 --layers districts,neighborhoods,green_spaces,schools,bike_parking,ev_chargers,drinking_fountains,bathing_waters,toilets,playgrounds,sports_facilities,kitas,hospitals,cemeteries,park_and_ride
 
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
@@ -43,39 +42,39 @@ npm run dev
 - API: http://localhost:8000/docs  
 - App: http://localhost:5173  
 
-No external API keys. Only local `DATABASE_URL` in `.env` (gitignored).
+No external API keys. Only local `DATABASE_URL` and `DATABASE_URL_RO` in `.env` (gitignored). `DATABASE_URL_RO` is the read-only role `berlin_ro` (created by migration 0009) that the SQL playground uses. If port 5432 is taken (e.g. Homebrew Postgres), start Docker with `POSTGRES_PORT=5433 docker compose up -d db` and use port 5433 in both URLs.
 
-## Schema
+## Schema (v2)
+
+Design docs: [docs/schema-v2/](docs/schema-v2/README.md) (ERD, normalization, indexing, ACID). Decisions D1–D12: [implementation plan](docs/module-requirements/implementation-plan.md).
 
 | Table | Role |
 | --- | --- |
 | `dataset_catalog` | Provenance, vintage, caveats |
-| `districts` | Borough polygons (EPSG:25833) |
-| `neighborhoods` | Ortsteil polygons (map context) |
-| `green_spaces` | Public parks (polygons) |
-| `cemeteries` | Cemetery polygons |
-| `schools` | Context for school↔green proximity |
-| `kitas` | Daycare centres |
-| `hospitals` | Hospital sites (plan + other) |
-| `trees` | Street trees (bbox-scoped on the map) |
-| `park_trees` | Park / green-space trees (bbox-scoped) |
-| `bike_parking` | Bike parking points |
-| `ev_chargers` | EV charging sites |
-| `drinking_fountains` | Public drinking fountains |
-| `bathing_waters` | Official bathing sites |
-| `toilets` | Public toilets |
-| `playgrounds` | Playground polygons |
-| `sports_facilities` | Sports sites |
-| `park_and_ride` | Park & Ride sites |
+| `districts`, `neighborhoods` | Borough and Ortsteil polygons (EPSG:25833) |
+| `amenity_kind` | The 15 kinds; `geom_family` says point or area |
+| `amenity_points` | All point amenities, **list-partitioned by `kind_code`** (street trees, park trees, other) |
+| `amenity_areas` | Parks, playgrounds, cemeteries (validity-checked polygons) |
+| `tag_category`, `tag` | Vocabulary: EV connector types, Kita approaches, toilet features |
+| `amenity_point_tag` | **Many-to-many** point ⟷ tag, with composite foreign keys |
+| `kind_tag_category` | **Many-to-many** kind ⟷ tag category (which kind may carry which tags) |
+| `operator` | Who runs a facility (Kita number or name) |
+| `tree_species` | Botanical name → German name, genus (3NF lookup) |
+| `tree_detail`, `kita_detail`, `ev_charger_detail` | 1:1 typed facts for the kinds we analyse |
+| `import_run` | Audit row per layer import |
+| `borough_amenity_stats` | Materialized view: counts per borough and kind |
 
-All geometries EPSG:25833; sources per layer: [docs/data-sources.md](docs/data-sources.md). Each feature keeps full source properties in `attrs` (jsonb).
+The database refuses inconsistent data (an area kind in the points table, a Kita tag on a toilet, a duplicate source key, a zero tree height): see `backend/tests/test_constraints.py`. All geometries EPSG:25833; sources per layer: [docs/data-sources.md](docs/data-sources.md). Each feature keeps its raw source properties in `attrs` (jsonb) for provenance.
 
 ## Analyses
 
-1. **Nearest amenities** — `GET /analyses/nearest-amenities?lon=&lat=`  
-2. **Amenity density by borough** — counts per district  
-3. **Green by borough** — mapped park area share  
-4. **School–green proximity** — secondary distance summary  
+1. **Nearest amenities** — `GET /analyses/nearest-amenities?lon=&lat=` (one KNN per kind)
+2. **Amenity density by borough** — counts per district, with a city total (`ROLLUP`)
+3. **Green by borough** — mapped park area share
+4. **School–green proximity** — median / p90 distance per borough
+5. **Tag filter** — `GET /ev-chargers?tag=<id>&tag=<id>` (AND), `GET /tags?kind=`, `GET /amenities/near`
+6. **Operators** — `GET /analyses/operators` (top operators per borough, Kita capacity)
+7. **Tree statistics** — `GET /analyses/trees-by-borough` (species diversity, median year, top genus)
 
 ## Tests
 
@@ -84,4 +83,4 @@ cd backend && source .venv/bin/activate
 pytest -q        # DB-backed tests need the database up (docker compose up -d); they skip cleanly otherwise
 ```
 
-Visible SQL: [backend/sql/](backend/sql/) — explore with ready Patterns, the schema Glossary, and free SQL in the Query tab. Smoke checklist: [docs/smoke-test.md](docs/smoke-test.md).
+Migrations: `alembic upgrade head` applies 0001–0011 in order; 0011 drops the legacy per-layer tables, so on a fresh database they are created and dropped again. Visible SQL: [backend/sql/](backend/sql/) — explore with ready Patterns, the schema Glossary, and free SQL in the Query tab. Smoke checklist: [docs/smoke-test.md](docs/smoke-test.md).

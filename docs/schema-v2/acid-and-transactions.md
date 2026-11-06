@@ -53,7 +53,7 @@ With SQLAlchemy: one `Session` per layer, `commit()` on success, `rollback()` in
 
 ## Demo for the report
 
-1. Run `python -m scripts.import_layers --layers toilets --fail-after-rows 100`.
+1. Run `python -m scripts.import_v2 --layers toilets --fail-after-rows 100`.
 2. Show `SELECT count(*) … WHERE kind_code = 'toilet'` unchanged, and `import_run.status = 'failed'` with the error.
 3. Re-run without the flag: status `committed`, counts match the source.
 4. Re-run again: 0 inserted / 0 updated / 0 deleted, ids unchanged.

@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import engine
-from scripts.import_layers import CATALOG, upsert_catalog
+from scripts.sources import CATALOG, upsert_catalog
 from scripts.import_v2 import (
     SPECS,
     InjectedFailure,

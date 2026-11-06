@@ -9,7 +9,7 @@ One transaction per layer (docs/schema-v2/acid-and-transactions.md):
   tx C  import_run row 'committed' | 'failed'          (own commit)
 
 `apply_layer()` never commits, so tests can run it inside a rolled-back
-transaction. Reuses catalog metadata and file/WFS helpers from import_layers.py,
+transaction. Reuses catalog metadata and file/WFS helpers from sources.py,
 which stays the entry point for the legacy tables until the phase 6 cutover.
 """
 
@@ -30,7 +30,7 @@ from sqlalchemy import text
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
 
-from scripts.import_layers import (  # noqa: E402
+from scripts.sources import (  # noqa: E402
     CATALOG,
     DEFAULT_ORDER,
     IMPORT_CONFIG,
