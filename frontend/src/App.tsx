@@ -5,9 +5,11 @@ import {
   BBox,
   DistrictListItem,
   FeatureCollection,
+  FeatureDetail,
   LayerMeta,
   NearestAmenities,
   SqlRunResult,
+  TagItem,
   api,
   bboxContains,
   boundsToBbox,
@@ -17,9 +19,11 @@ import {
 } from "./api";
 import { PATTERNS, SCHEMA_TABLES, SchemaTable } from "./exercises";
 import {
+  KIND_CODES,
   LAYERS,
   LayerSlug,
   SourceStyle,
+  TAGGABLE_LAYERS,
   TREES_MAX_BBOX_SPAN,
   TREES_MIN_ZOOM,
   ZOOM_GATED_LAYERS,
@@ -48,7 +52,10 @@ type CompareMeasure =
   | "cemeteries"
   | "park_and_ride"
   | "green_pct"
-  | "school_park";
+  | "school_park"
+  | "operators"
+  | "tree_species"
+  | "tree_year";
 
 const COMPARE_MEASURES: Array<{ id: CompareMeasure; label: string }> = [
   { id: "bike_parking", label: "Bike parking" },
@@ -66,6 +73,9 @@ const COMPARE_MEASURES: Array<{ id: CompareMeasure; label: string }> = [
   { id: "park_and_ride", label: "Park & Ride" },
   { id: "green_pct", label: "Green cover %" },
   { id: "school_park", label: "School–park median" },
+  { id: "operators", label: "Top operator (facilities)" },
+  { id: "tree_species", label: "Tree species count" },
+  { id: "tree_year", label: "Median planting year" },
 ];
 
 /** Layers to enable when pinning a Compare measure's SQL. */
@@ -85,14 +95,24 @@ const COMPARE_MEASURE_LAYERS: Record<CompareMeasure, LayerSlug[]> = {
   park_and_ride: ["districts", "park_and_ride"],
   green_pct: ["districts", "green_spaces"],
   school_park: ["districts", "schools", "green_spaces"],
+  operators: ["districts", "kitas", "ev_chargers"],
+  tree_species: ["districts", "trees", "park_trees"],
+  tree_year: ["districts", "trees", "park_trees"],
 };
 
-/** Table names in SQL match layer slugs — word-boundary match finds mentioned layers. */
+/**
+ * Schema v2: amenities share two tables, so layers are found through the kind_code
+ * literal ('ev_charger'); districts and neighborhoods still match their table name.
+ */
 function layersFromSql(sql: string): Set<LayerSlug> {
   const found = new Set<LayerSlug>();
   const lower = sql.toLowerCase();
   for (const slug of Object.keys(LAYERS) as LayerSlug[]) {
-    if (new RegExp(`\\b${slug}\\b`).test(lower)) found.add(slug);
+    const kind = KIND_CODES[slug];
+    const hit = kind
+      ? new RegExp(`'${kind}'`).test(lower)
+      : new RegExp(`\\b${slug}\\b`).test(lower);
+    if (hit) found.add(slug);
   }
   return found;
 }
@@ -177,6 +197,12 @@ const KNOWN_BINDS = [
   "maxy",
   "lon",
   "lat",
+  "tag_ids",
+  "n_tags",
+  "top_n",
+  "kind",
+  "radius_m",
+  "limit",
 ] as const;
 
 const ANALYSIS_TITLES: Record<string, string> = {
@@ -184,6 +210,9 @@ const ANALYSIS_TITLES: Record<string, string> = {
   "analysis_amenity_density_by_borough.sql": "Amenity counts",
   "analysis_green_by_borough.sql": "Green cover",
   "analysis_school_green_proximity.sql": "School–park median",
+  "analysis_operators.sql": "Top operators",
+  "analysis_trees_by_borough.sql": "Tree statistics",
+  "amenities_near.sql": "Amenities near a point",
 };
 
 function titleForSqlFile(name: string): string {
@@ -360,6 +389,14 @@ export default function App() {
   const [density, setDensity] = useState<AnalysisResponse | null>(null);
   const [greenBorough, setGreenBorough] = useState<AnalysisResponse | null>(null);
   const [schoolGreen, setSchoolGreen] = useState<AnalysisResponse | null>(null);
+  const [operatorStats, setOperatorStats] = useState<AnalysisResponse | null>(null);
+  const [treeStats, setTreeStats] = useState<AnalysisResponse | null>(null);
+  const [tagVocab, setTagVocab] = useState<Record<string, TagItem[]>>({});
+  const [tagFilter, setTagFilter] = useState<Partial<Record<LayerSlug, number[]>>>({});
+  const tagFilterRef = useRef(tagFilter);
+  tagFilterRef.current = tagFilter;
+  const tagKey = JSON.stringify(tagFilter);
+  const [featureDetail, setFeatureDetail] = useState<FeatureDetail | null>(null);
   const [mapZoom, setMapZoom] = useState(10.4);
   const [queryDoc, setQueryDoc] = useState<QueryDoc | null>(null);
   const [pendingReplace, setPendingReplace] = useState<QueryDoc | null>(null);
@@ -476,11 +513,32 @@ export default function App() {
       setMapZoom(map.getZoom());
     });
 
+    const showFeatureAt = async (m: Map, point: maplibregl.PointLike) => {
+      const layerIds = (Object.keys(KIND_CODES) as LayerSlug[])
+        .flatMap((slug) => [`${slug}-layer`, `${slug}-outline`])
+        .filter((id) => m.getLayer(id));
+      const hit = m
+        .queryRenderedFeatures(point, { layers: layerIds })
+        .find((f) => typeof f.properties?.layer === "string" && f.properties?.id != null);
+      if (!hit) {
+        setFeatureDetail(null);
+        return;
+      }
+      try {
+        setFeatureDetail(
+          await api.feature(hit.properties!.layer as LayerSlug, Number(hit.properties!.id))
+        );
+      } catch {
+        setFeatureDetail(null);
+      }
+    };
+
     const onClick = async (e: maplibregl.MapMouseEvent) => {
       const { lng, lat } = e.lngLat;
       if (markerRef.current) markerRef.current.remove();
       markerRef.current = new maplibregl.Marker({ color: "#1f5c4d" }).setLngLat([lng, lat]).addTo(map);
       setLastClick({ lon: lng, lat });
+      void showFeatureAt(map, e.point);
       try {
         setNearestError(null);
         setStatus(`Looking up ${lng.toFixed(5)}, ${lat.toFixed(5)}…`);
@@ -604,7 +662,7 @@ export default function App() {
               }
               if (layerDef(slug).citywide) return api.layer(slug);
               const bbox = isZoomGated(slug) ? treesFetchBbox : fetchBbox;
-              return api.layer(slug, bbox, districtId);
+              return api.layer(slug, bbox, districtId, tagFilterRef.current[slug]);
             })
           ),
           densityLoadedRef.current
@@ -709,7 +767,7 @@ export default function App() {
       map.off("zoomend", onMoveEnd);
       if (debounceTimer) clearTimeout(debounceTimer);
     };
-  }, [selectedDistrict]);
+  }, [selectedDistrict, tagKey]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -797,6 +855,12 @@ export default function App() {
       lat: lastClick?.lat ?? (center ? Number(center.lat.toFixed(5)) : BERLIN_CENTER[1]),
       district_id: selectedDistrict === "" ? null : selectedDistrict,
       threshold_m: DEFAULT_THRESHOLD_M,
+      tag_ids: null,
+      n_tags: 0,
+      top_n: 3,
+      kind: null,
+      radius_m: 400,
+      limit: 50,
     };
   };
 
@@ -877,7 +941,7 @@ export default function App() {
         const isTable = SCHEMA_TABLES.some((t) => t.table === token);
         const sql = isTable
           ? `SELECT id, name, district_id,\n  ST_AsGeoJSON(ST_Transform(geom, 4326))::json AS geometry\nFROM ${token}\nORDER BY id\nLIMIT 50`
-          : `SELECT ${token}\nFROM bike_parking\nLIMIT 50`;
+          : `SELECT ${token}\nFROM amenity_points\nWHERE kind_code = 'bike_parking'\nLIMIT 50`;
         return makeDoc(isTable ? token : "Scratch", sql);
       }
       const sql = d.sql;
@@ -935,10 +999,33 @@ export default function App() {
     markerRef.current?.remove();
     markerRef.current = null;
     setNearest(null);
+    setFeatureDetail(null);
     setNearestError(null);
     setSqlOffer(null);
     setStatus("Click the map to find nearby amenities");
   };
+
+  useEffect(() => {
+    // Tag vocabularies for the filter row (small, loaded once).
+    for (const kind of Object.values(TAGGABLE_LAYERS)) {
+      if (!kind) continue;
+      api
+        .tags(kind)
+        .then((tags) => setTagVocab((v) => ({ ...v, [kind]: tags })))
+        .catch(() => undefined);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (taskTab !== "compare") return;
+    if (compareMeasure === "operators" && !operatorStats) {
+      api.operators(1).then(setOperatorStats).catch(() => undefined);
+    }
+    if ((compareMeasure === "tree_species" || compareMeasure === "tree_year") && !treeStats) {
+      // Served from a materialized view; fetched only when a tree measure is opened.
+      api.treesByBorough().then(setTreeStats).catch(() => undefined);
+    }
+  }, [taskTab, compareMeasure, operatorStats, treeStats]);
 
   useEffect(() => {
     if (taskTab !== "compare" || schoolGreen) return;
@@ -1047,6 +1134,18 @@ export default function App() {
               );
             })}
           </div>
+          <TagFilterRow
+            visibility={visibility}
+            vocab={tagVocab}
+            selected={tagFilter}
+            onToggle={(slug, id) =>
+              setTagFilter((cur) => {
+                const now = cur[slug] ?? [];
+                const next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id];
+                return { ...cur, [slug]: next };
+              })
+            }
+          />
           {layerError && <p className="error">Layer error: {layerError}</p>}
         </header>
 
@@ -1080,6 +1179,9 @@ export default function App() {
               {!nearest && !nearestError && (
                 <p className="hint">Click the map to look up nearest amenities.</p>
               )}
+              {featureDetail && (
+                <FeatureCard feature={featureDetail} onClose={() => setFeatureDetail(null)} />
+              )}
               {nearest && (
                 <NearestPanel
                   result={nearest}
@@ -1098,6 +1200,8 @@ export default function App() {
                 density={density}
                 greenBorough={greenBorough}
                 schoolGreen={schoolGreen}
+                operatorStats={operatorStats}
+                treeStats={treeStats}
                 selectedDistrict={selectedDistrict}
                 onSelectBorough={selectBorough}
                 onShowQuery={(doc) => {
@@ -1379,6 +1483,118 @@ function NearestPanel({
   );
 }
 
+/** Tag chips (U7) for the visible layers whose kind carries tags; AND semantics on the server. */
+function TagFilterRow({
+  visibility,
+  vocab,
+  selected,
+  onToggle,
+}: {
+  visibility: Visibility;
+  vocab: Record<string, TagItem[]>;
+  selected: Partial<Record<LayerSlug, number[]>>;
+  onToggle: (slug: LayerSlug, tagId: number) => void;
+}) {
+  const slugs = (Object.keys(TAGGABLE_LAYERS) as LayerSlug[]).filter(
+    (slug) => visibility[slug] && (vocab[TAGGABLE_LAYERS[slug]!]?.length ?? 0) > 0
+  );
+  if (slugs.length === 0) return null;
+  return (
+    <div className="tag-filter" aria-label="Tag filters">
+      {slugs.map((slug) => (
+        <details key={slug} className="tag-filter-group">
+          <summary>
+            {LAYERS[slug].label} tags
+            {(selected[slug]?.length ?? 0) > 0 && ` (${selected[slug]!.length})`}
+          </summary>
+          <div className="tag-chips">
+            {vocab[TAGGABLE_LAYERS[slug]!].map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`tag-chip${selected[slug]?.includes(t.id) ? " tag-chip-on" : ""}`}
+                aria-pressed={selected[slug]?.includes(t.id) ?? false}
+                title={`${t.feature_count} features`}
+                onClick={() => onToggle(slug, t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+const DETAIL_LABELS: Record<string, string> = {
+  planting_year: "Planted",
+  trunk_circumference_cm: "Trunk (cm)",
+  height_m: "Height (m)",
+  crown_diameter_m: "Crown (m)",
+  capacity: "Places",
+  charge_points: "Charge points",
+  max_power_kw: "Max power (kW)",
+  commissioned_on: "Commissioned",
+  public_space: "Public space",
+};
+
+/** One feature with its tags, operator and typed detail (GET /features/{layer}/{id}). */
+function FeatureCard({ feature, onClose }: { feature: FeatureDetail; onClose: () => void }) {
+  const p = feature.properties;
+  const species = (p.detail as { species?: { botanical_name: string; german_name?: string } | null } | null)
+    ?.species;
+  const detailRows = Object.entries(p.detail ?? {}).filter(
+    ([k, v]) => v != null && k !== "species" && DETAIL_LABELS[k]
+  );
+  return (
+    <div className="analysis-card feature-card">
+      <div className="nearby-head">
+        <h3 className="nearby-title">{p.name ?? "Unnamed"}</h3>
+        <button type="button" className="secondary starter-btn" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      <p className="hint">
+        {p.layer_kind.replace(/_/g, " ")}
+        {p.subtype ? ` · ${p.subtype}` : ""}
+        {p.district ? ` · ${p.district}` : ""}
+      </p>
+      {p.operator && (
+        <p className="feature-line">
+          <strong>Operator</strong> {p.operator.name}
+          {p.operator.operator_type ? ` (${p.operator.operator_type})` : ""}
+        </p>
+      )}
+      {species && (
+        <p className="feature-line">
+          <strong>Species</strong> {species.german_name ?? species.botanical_name}
+          {species.german_name ? ` · ${species.botanical_name}` : ""}
+        </p>
+      )}
+      {detailRows.length > 0 && (
+        <dl className="feature-detail">
+          {detailRows.map(([k, v]) => (
+            <div key={k}>
+              <dt>{DETAIL_LABELS[k]}</dt>
+              <dd>{typeof v === "boolean" ? (v ? "yes" : "no") : String(v)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {(p.tags?.length ?? 0) > 0 && (
+        <div className="tag-chips">
+          {p.tags!.map((t) => (
+            <span key={t.id} className="tag-chip tag-chip-static">
+              {t.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GlossaryDialog({
   tables,
   highlight,
@@ -1545,6 +1761,8 @@ function ComparePanel({
   density,
   greenBorough,
   schoolGreen,
+  operatorStats,
+  treeStats,
   selectedDistrict,
   onSelectBorough,
   onShowQuery,
@@ -1554,12 +1772,22 @@ function ComparePanel({
   density: AnalysisResponse | null;
   greenBorough: AnalysisResponse | null;
   schoolGreen: AnalysisResponse | null;
+  operatorStats: AnalysisResponse | null;
+  treeStats: AnalysisResponse | null;
   selectedDistrict: number | "";
   onSelectBorough: (id: number | "") => void;
   onShowQuery: (doc: QueryDoc) => void;
 }) {
   const analysis =
-    measure === "green_pct" ? greenBorough : measure === "school_park" ? schoolGreen : density;
+    measure === "green_pct"
+      ? greenBorough
+      : measure === "school_park"
+        ? schoolGreen
+        : measure === "operators"
+          ? operatorStats
+          : measure === "tree_species" || measure === "tree_year"
+            ? treeStats
+            : density;
 
   const districtIdOf = (r: Record<string, unknown>): number | "" =>
     typeof r.district_id === "number" ? r.district_id : "";
@@ -1585,8 +1813,39 @@ function ComparePanel({
         }))
         .sort((a, b) => (a.value ?? Infinity) - (b.value ?? Infinity));
     }
+    if (measure === "operators") {
+      return (operatorStats?.results ?? [])
+        .filter((r) => r.rank === 1)
+        .map((r) => ({
+          id: districtIdOf(r),
+          name: String(r.district_name ?? "—"),
+          value: typeof r.feature_count === "number" ? r.feature_count : null,
+          secondary: String(r.operator_name ?? ""),
+        }))
+        .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+    }
+    if (measure === "tree_species") {
+      return (treeStats?.results ?? [])
+        .map((r) => ({
+          id: districtIdOf(r),
+          name: String(r.district_name ?? "—"),
+          value: typeof r.species_count === "number" ? r.species_count : null,
+          secondary: r.top_genus ? `top genus ${String(r.top_genus)}` : undefined,
+        }))
+        .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+    }
+    if (measure === "tree_year") {
+      return (treeStats?.results ?? [])
+        .map((r) => ({
+          id: districtIdOf(r),
+          name: String(r.district_name ?? "—"),
+          value: typeof r.median_planting_year === "number" ? r.median_planting_year : null,
+        }))
+        .sort((a, b) => (a.value ?? Infinity) - (b.value ?? Infinity));
+    }
     const key = measure;
     return (density?.results ?? [])
+      .filter((r) => typeof r.district_id === "number") // drop the ROLLUP total row
       .map((r) => ({
         id: districtIdOf(r),
         name: String(r.district_name ?? "—"),
@@ -1652,7 +1911,9 @@ function ComparePanel({
           const label =
             r.value == null
               ? "—"
-              : measure === "green_pct"
+              : measure === "tree_year"
+                ? String(Math.round(r.value))
+                : measure === "green_pct"
                 ? `${r.value.toFixed(1)}%`
                 : measure === "school_park"
                   ? `${r.value.toFixed(0)} m`

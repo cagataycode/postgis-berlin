@@ -270,6 +270,32 @@ export const LAYERS = {
 
 export type LayerSlug = keyof typeof LAYERS;
 
+/** Layer slug → amenity_kind.code (districts and neighborhoods have none). */
+export const KIND_CODES: Partial<Record<LayerSlug, string>> = {
+  green_spaces: "green_space",
+  cemeteries: "cemetery",
+  playgrounds: "playground",
+  schools: "school",
+  kitas: "kita",
+  hospitals: "hospital",
+  trees: "street_tree",
+  park_trees: "park_tree",
+  bike_parking: "bike_parking",
+  ev_chargers: "ev_charger",
+  drinking_fountains: "drinking_fountain",
+  bathing_waters: "bathing_water",
+  toilets: "toilet",
+  sports_facilities: "sports_facility",
+  park_and_ride: "park_and_ride",
+};
+
+/** Layers whose kind carries tags (?tag= filter): slug → kind_code. */
+export const TAGGABLE_LAYERS: Partial<Record<LayerSlug, string>> = {
+  kitas: "kita",
+  ev_chargers: "ev_charger",
+  toilets: "toilet",
+};
+
 export function isZoomGated(slug: LayerSlug): boolean {
   return "minzoom" in LAYERS[slug].style && LAYERS[slug].style.minzoom != null;
 }

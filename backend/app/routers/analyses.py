@@ -57,6 +57,61 @@ def nearest_amenities(
     }
 
 
+@router.get("/operators")
+def operators_by_borough(
+    top_n: int = Query(3, ge=1, le=20),
+    kind: str | None = Query(None, description="restrict to one kind_code"),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """U8: top operators per borough (rank() OVER PARTITION BY district)."""
+    rows = (
+        db.execute(text(load_sql("analysis_operators.sql")), {"top_n": top_n, "kind": kind})
+        .mappings()
+        .all()
+    )
+    return {
+        "id": "operators",
+        "title": "Top operators by borough",
+        "inputs": ["amenity_points", "operator", "kita_detail", "districts"],
+        "operation": (
+            "COUNT features per (district, operator); rank() OVER (PARTITION BY district "
+            "ORDER BY count DESC); SUM kita capacity from kita_detail"
+        ),
+        "units": {"feature_count": "features", "kita_capacity": "places"},
+        "crs": "EPSG:25833",
+        "top_n": top_n,
+        "kind": kind,
+        "caveat": (
+            "Only features with a published operator are counted (Kitas, EV chargers, "
+            "some toilets). Tied operators share a rank."
+        ),
+        "sql_ref": "analysis_operators.sql",
+        "results": [dict(r) for r in rows],
+    }
+
+
+@router.get("/trees-by-borough")
+def trees_by_borough(db: Session = Depends(get_db)) -> dict[str, Any]:
+    rows = db.execute(text(load_sql("analysis_trees_by_borough.sql"))).mappings().all()
+    return {
+        "id": "trees-by-borough",
+        "title": "Tree statistics by borough",
+        "inputs": ["borough_tree_stats", "tree_detail", "tree_species", "amenity_points"],
+        "operation": (
+            "Materialized view: COUNT(DISTINCT species_id), percentile_cont(0.5) of planting_year "
+            "and height, mode() WITHIN GROUP genus per district"
+        ),
+        "units": {"tree_count": "trees", "median_planting_year": "year", "median_height_m": "m"},
+        "crs": "EPSG:25833",
+        "caveat": (
+            "Street and park trees in the open inventories; planting year and height are "
+            "missing for many trees and are left out of the medians."
+        ),
+        "sql_ref": "analysis_trees_by_borough.sql",
+        "results": [dict(r) for r in rows],
+    }
+
+
 @router.get("/amenity-density-by-borough")
 def amenity_density_by_borough(db: Session = Depends(get_db)) -> dict[str, Any]:
     rows = db.execute(text(load_sql("analysis_amenity_density_by_borough.sql"))).mappings().all()
@@ -64,6 +119,7 @@ def amenity_density_by_borough(db: Session = Depends(get_db)) -> dict[str, Any]:
         "id": "amenity-density-by-borough",
         "title": "Amenity counts by borough",
         "inputs": [
+            "borough_amenity_stats",
             "districts",
             "trees",
             "park_trees",
@@ -79,12 +135,12 @@ def amenity_density_by_borough(db: Session = Depends(get_db)) -> dict[str, Any]:
             "cemeteries",
             "park_and_ride",
         ],
-        "operation": "COUNT features per district_id for each amenity layer",
+        "operation": "Pivot borough_amenity_stats (COUNT per district and kind); ROLLUP adds a city total",
         "units": {"count": "features"},
         "crs": "EPSG:25833",
         "caveat": (
-            "Mapped inventory counts assigned by point-in-polygon at import — "
-            "not a service-need ranking."
+            "Counts come from a materialized view refreshed at the end of each import; "
+            "district assignment is point-in-polygon at import — not a service-need ranking."
         ),
         "sql_ref": "analysis_amenity_density_by_borough.sql",
         "results": [dict(r) for r in rows],

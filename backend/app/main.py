@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.db import check_db
-from app.routers import analyses, layers, sql
+from app.routers import analyses, layers, sql, tags
 
 app = FastAPI(title="Berlin Amenities Map API", version="0.4.0")
 
@@ -20,6 +20,7 @@ app.add_middleware(
 
 app.include_router(layers.router)
 app.include_router(analyses.router)
+app.include_router(tags.router)
 app.include_router(sql.router)
 
 

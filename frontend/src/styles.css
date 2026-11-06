@@ -1261,3 +1261,20 @@ button.secondary {
     transition: none !important;
   }
 }
+
+/* Tag filter + feature card (schema v2) */
+.tag-filter { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.tag-filter-group summary { cursor: pointer; font-size: 0.78rem; color: var(--muted, #52606d); }
+.tag-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag-chip {
+  border: 1px solid #cbd2d9; background: #fff; border-radius: 999px;
+  padding: 2px 8px; font-size: 0.72rem; cursor: pointer; color: #243b53;
+}
+.tag-chip-on { background: #0f6a5a; border-color: #0f6a5a; color: #fff; }
+.tag-chip-static { cursor: default; background: #f0f4f8; }
+.feature-card { margin-bottom: 8px; }
+.feature-line { margin: 4px 0; font-size: 0.82rem; }
+.feature-detail { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 12px; margin: 6px 0; font-size: 0.78rem; }
+.feature-detail div { display: flex; justify-content: space-between; gap: 6px; }
+.feature-detail dt { color: #52606d; }
+.feature-detail dd { margin: 0; font-weight: 600; }

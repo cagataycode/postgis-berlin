@@ -22,7 +22,7 @@ All map data is **official Berlin open data**, fetched at import time from the [
 | Sports facilities | Senatsverwaltung Berlin | [Sportstandorte WFS](https://daten.berlin.de/datensaetze/sportstandorte-wfs) | `…/wfs/sportstandorte` → `sportstandorte:sportstandorte` | dl-de/zero-2.0 |
 | Park & Ride | SenMVKU Berlin | [P+R Anlagen](https://gdi.berlin.de/geonetwork/srv/api/records/c9d9f2e4-1621-3c9a-a281-dae3b3359c31) | `…/wfs/park_and_ride` → `park_and_ride:park_and_ride` | dl-de/zero-2.0 |
 
-All WFS endpoints share the base `https://gdi.berlin.de/services/wfs/…`. Attribution for cc-by data: **Geoportal Berlin / LAGeSo** (BWB where noted). Import config: [`backend/scripts/import_layers.py`](../backend/scripts/import_layers.py).
+All WFS endpoints share the base `https://gdi.berlin.de/services/wfs/…`. Attribution for cc-by data: **Geoportal Berlin / LAGeSo** (BWB where noted). Import config: [`backend/scripts/sources.py`](../backend/scripts/sources.py) (importer: `import_v2.py`).
 
 ## Known gaps
 

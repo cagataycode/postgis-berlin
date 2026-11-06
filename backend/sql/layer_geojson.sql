@@ -1,5 +1,5 @@
 -- Bbox GeoJSON for the {slug} layer (rendered by app.layer_registry.render_layer_sql).
--- Params: :minx, :miny, :maxx, :maxy (WGS84 lon/lat — null bbox = all features){district_param}
+-- Params: :minx, :miny, :maxx, :maxy (WGS84 lon/lat — null bbox = all features){district_param}{tag_param}
 -- Source attrs merge under curated keys when enabled (curated wins on collision).
 SELECT jsonb_build_object(
   'type', 'FeatureCollection',

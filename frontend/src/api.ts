@@ -108,6 +108,25 @@ export type NearestAmenities = {
   }>;
 };
 
+export type TagItem = { id: number; category: string; label: string; feature_count: number };
+
+export type FeatureDetail = {
+  type: "Feature";
+  id: number;
+  geometry: { type: string; coordinates: unknown };
+  properties: {
+    id: number;
+    layer_kind: string;
+    name?: string | null;
+    subtype?: string | null;
+    district?: string | null;
+    operator?: { id: number; name: string; official_ref: string | null; operator_type: string | null } | null;
+    tags?: Array<{ id: number; category: string; label: string }>;
+    detail?: Record<string, unknown> | null;
+    [key: string]: unknown;
+  };
+};
+
 export type SqlFile = { name: string; sql: string };
 
 export type LayerSql = { name: string; slug: string; sql: string };
@@ -149,10 +168,11 @@ export function boundsToBbox(bounds: {
   return [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
 }
 
-function layerQuery(bbox?: string, districtId?: number): string {
+function layerQuery(bbox?: string, districtId?: number, tags?: number[]): string {
   const q = new URLSearchParams();
   if (bbox) q.set("bbox", bbox);
   if (districtId) q.set("district_id", String(districtId));
+  for (const t of tags ?? []) q.append("tag", String(t));
   const qs = q.toString();
   return qs ? `?${qs}` : "";
 }
@@ -160,8 +180,15 @@ function layerQuery(bbox?: string, districtId?: number): string {
 export const api = {
   layers: () => getJson<LayerMeta[]>("/layers", { ttlMs: 60_000 }),
   districtsList: () => getJson<DistrictListItem[]>("/districts/list", { ttlMs: 60_000 }),
-  layer: (slug: LayerSlug, bbox?: string, districtId?: number) =>
-    getJson<FeatureCollection>(`${LAYER_PATHS[slug]}${layerQuery(bbox, districtId)}`),
+  layer: (slug: LayerSlug, bbox?: string, districtId?: number, tags?: number[]) =>
+    getJson<FeatureCollection>(`${LAYER_PATHS[slug]}${layerQuery(bbox, districtId, tags)}`),
+  /** Tag vocabulary a kind may carry (U7). */
+  tags: (kind: string) => getJson<TagItem[]>(`/tags?kind=${encodeURIComponent(kind)}`, { ttlMs: 60_000 }),
+  /** One feature with tags, operator and typed detail (loaded through the ORM). */
+  feature: (slug: LayerSlug, id: number) =>
+    getJson<FeatureDetail>(`/features/${slug}/${id}`, { cache: false }),
+  operators: (topN = 3) => getJson<AnalysisResponse>(`/analyses/operators?top_n=${topN}`),
+  treesByBorough: () => getJson<AnalysisResponse>("/analyses/trees-by-borough"),
   layerSql: (slug: LayerSlug) => getJson<LayerSql>(`/layers/${slug}/sql`, { ttlMs: 60_000 }),
   /** Point checks are not cached — each click is a distinct query. */
   nearestAmenities: (lon: number, lat: number) =>

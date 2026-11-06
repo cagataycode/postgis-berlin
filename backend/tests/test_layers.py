@@ -22,7 +22,8 @@ def test_get_layer_sql():
     body = res.json()
     assert body["name"] == "layer_geojson.sql"
     assert body["slug"] == "bike_parking"
-    assert "FROM bike_parking" in body["sql"]
+    assert "FROM amenity_points" in body["sql"]
+    assert "kind_code = 'bike_parking'" in body["sql"]
     assert "attrs" in body["sql"]
 
 
@@ -30,7 +31,7 @@ def test_park_trees_sql_skips_attrs_and_limits():
     res = client.get("/layers/park_trees/sql")
     assert res.status_code == 200
     body = res.json()
-    assert "FROM park_trees" in body["sql"]
+    assert "FROM amenity_points" in body["sql"]
     assert "LIMIT 8000" in body["sql"]
     assert "pt.attrs" not in body["sql"]
 

@@ -5,10 +5,40 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgis}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgis}
       POSTGRES_DB: ${POSTGRES_DB:-berlin}
+    # Continuous archiving (phase 8): every finished WAL segment is copied to ./backups/wal,
+    # so a base backup plus the archive allows point-in-time recovery (docs/operations.md).
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /backups/wal/%f && cp %p /backups/wal/%f
+      - -c
+      - archive_timeout=300
+      # Tuning for a ~1.4 GB database on a laptop (defaults are 128MB / 4MB / 64MB / 4.0).
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - effective_cache_size=2GB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgis_data:/var/lib/postgresql/data
+      - ./backups:/backups
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgis} -d ${POSTGRES_DB:-berlin}"]
       interval: 5s

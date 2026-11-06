@@ -8,15 +8,17 @@ WITH distances AS (
     s.district_id,
     d.name AS district_name,
     nearest.dist_m
-  FROM schools s
+  FROM amenity_points s
   JOIN districts d ON d.id = s.district_id
   CROSS JOIN LATERAL (
     SELECT ST_Distance(s.geom, g.geom) AS dist_m
-    FROM green_spaces g
+    FROM amenity_areas g
+    WHERE g.kind_code = 'green_space'
     ORDER BY s.geom <-> g.geom
     LIMIT 1
   ) nearest
-  WHERE (CAST(:district_id AS integer) IS NULL OR s.district_id = CAST(:district_id AS integer))
+  WHERE s.kind_code = 'school'
+    AND (CAST(:district_id AS integer) IS NULL OR s.district_id = CAST(:district_id AS integer))
 )
 SELECT
   district_id,

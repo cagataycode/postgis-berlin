@@ -1,38 +1,59 @@
 # ACID & transactions — schema v2
 
-Level 1 requires understanding transactions and ACID. This note ties those concepts to the amenity import pipeline.
+How ACID maps to the amenity import pipeline and to the constraints in [schema.sql](schema.sql).
 
 ## ACID in this project
 
 | Property | Meaning here |
 | --- | --- |
-| **Atomicity** | One layer import either fully replaces that kind’s rows or leaves the previous data untouched. No half-deleted `street_tree` set. |
-| **Consistency** | After commit, FKs hold (`kind_code`, `catalog_id`, `district_id`); geometries are valid SRID 25833 points/areas; `amenity_kind.geom_family` matches the target table. |
-| **Isolation** | Concurrent readers (map API) should not see a mid-import empty kind. Use a single transaction around delete + insert + district assign (default READ COMMITTED is enough for L1). |
-| **Durability** | Once committed, Postgres has written the change to durable storage (WAL). Local Docker is not a backup strategy — see Level 2 for continuous backups. |
+| **Atomicity** | One layer import either fully applies (rows, operators, tags, details, district ids) or leaves the previous data untouched. No half-updated `street_tree` set. |
+| **Consistency** | Constraints guard every commit: composite FKs (kind ↔ geometry family, tag category ↔ kind), `UNIQUE (kind_code, source_id)`, `CHECK`s on detail columns, `ST_IsValid` on areas. A bad row aborts the transaction instead of being stored. |
+| **Isolation** | Map readers must not see a half-imported kind. Imports use upsert inside one transaction, so readers (READ COMMITTED) see either the old or the new state of each row, never an empty kind. |
+| **Durability** | After commit the change is in the WAL on disk. Docker volume ≠ backup: continuous archiving is phase 8. |
 
-## Recommended import transaction boundary
+## Transaction boundary: one transaction per layer (D4, D10)
 
 ```text
+-- tx A (own transaction)
+INSERT INTO import_run (catalog_id, status) VALUES (…, 'running');   COMMIT;
+
+-- tx B (the import)
 BEGIN;
-  -- upsert catalog row for this source
-  -- DELETE FROM amenity_points WHERE kind_code = 'school';
-  -- INSERT … (all school features)
-  -- UPDATE … SET district_id = … WHERE kind_code = 'school' AND district_id IS NULL;
-COMMIT;  -- or ROLLBACK on error
+  upsert dataset_catalog
+  COPY features → TEMP staging
+  INSERT … ON CONFLICT (kind_code, source_id) DO UPDATE …            -- changed rows only
+  DELETE rows of this kind missing from staging
+  UPDATE district_id (spatial join), upsert operator, tags, detail tables
+COMMIT;   -- or ROLLBACK on any error
+
+-- tx C (own transaction)
+UPDATE import_run SET status = 'committed' | 'failed', counts / error;   COMMIT;
 ```
 
-With SQLAlchemy: one `Session`, `commit()` on success, `rollback()` in `except`.
+`import_run` is written outside tx B on purpose: if it were inside, a rollback would erase the record of the failure.
+
+With SQLAlchemy: one `Session` per layer, `commit()` on success, `rollback()` in `except`, then the status update in a fresh session.
+
+## Why upsert instead of delete + reinsert
+
+- Row ids stay stable, so tag and detail rows are not churned.
+- Re-running an unchanged import writes nothing (0 inserted / 0 updated / 0 deleted).
+- No mass `DELETE` on ~960k tree rows (dead tuples, table bloat).
+
+## Other transaction uses
+
+- **Playground:** `POST /sql/run` uses a read-only role plus `statement_timeout` (D11). Writes fail at the database, not only in Python.
+- **Trigger:** `set_updated_at()` runs inside the same transaction as the update, so `updated_at` is atomic with the change.
 
 ## What not to do
 
-- Autocommit each INSERT (partial kind visible; failed mid-file = corrupt layer).  
-- Delete all kinds in one transaction when only re-importing schools (unnecessary lock/blast radius).  
-- Rely on the browser or API for writes — imports are offline scripts; API stays read-oriented.
+- Autocommit each INSERT (partial kind visible; failed mid-file = corrupt layer).
+- One transaction around all layers (a failure in the last layer discards hours of tree import).
+- Writes from the browser or API: imports are offline scripts; the API stays read-only.
 
 ## Demo for the report
 
-1. Start import for one kind.  
-2. Force a failure mid-batch (bad geometry / raised exception).  
-3. Show row count for that `kind_code` unchanged after rollback.  
-4. Re-run successfully; show count matches source feature count.
+1. Run `python -m scripts.import_v2 --layers toilets --fail-after-rows 100`.
+2. Show `SELECT count(*) … WHERE kind_code = 'toilet'` unchanged, and `import_run.status = 'failed'` with the error.
+3. Re-run without the flag: status `committed`, counts match the source.
+4. Re-run again: 0 inserted / 0 updated / 0 deleted, ids unchanged.

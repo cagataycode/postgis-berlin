@@ -1,19 +1,24 @@
 -- Amenity counts per borough (mapped inventory density).
+-- Reads the materialized view borough_amenity_stats (refreshed at the end of
+-- every import) and pivots kinds into columns. ROLLUP adds a city total row.
+-- Output column names are the layer slugs the frontend already uses.
 SELECT
   d.id AS district_id,
-  d.name AS district_name,
-  (SELECT COUNT(*)::int FROM trees t WHERE t.district_id = d.id) AS trees,
-  (SELECT COUNT(*)::int FROM park_trees pt WHERE pt.district_id = d.id) AS park_trees,
-  (SELECT COUNT(*)::int FROM bike_parking b WHERE b.district_id = d.id) AS bike_parking,
-  (SELECT COUNT(*)::int FROM ev_chargers e WHERE e.district_id = d.id) AS ev_chargers,
-  (SELECT COUNT(*)::int FROM drinking_fountains f WHERE f.district_id = d.id) AS drinking_fountains,
-  (SELECT COUNT(*)::int FROM bathing_waters w WHERE w.district_id = d.id) AS bathing_waters,
-  (SELECT COUNT(*)::int FROM toilets o WHERE o.district_id = d.id) AS toilets,
-  (SELECT COUNT(*)::int FROM playgrounds p WHERE p.district_id = d.id) AS playgrounds,
-  (SELECT COUNT(*)::int FROM sports_facilities sf WHERE sf.district_id = d.id) AS sports_facilities,
-  (SELECT COUNT(*)::int FROM kitas k WHERE k.district_id = d.id) AS kitas,
-  (SELECT COUNT(*)::int FROM hospitals h WHERE h.district_id = d.id) AS hospitals,
-  (SELECT COUNT(*)::int FROM cemeteries c WHERE c.district_id = d.id) AS cemeteries,
-  (SELECT COUNT(*)::int FROM park_and_ride pr WHERE pr.district_id = d.id) AS park_and_ride
+  COALESCE(d.name, 'Berlin (total)') AS district_name,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'street_tree'), 0)::int AS trees,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'park_tree'), 0)::int AS park_trees,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'bike_parking'), 0)::int AS bike_parking,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'ev_charger'), 0)::int AS ev_chargers,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'drinking_fountain'), 0)::int AS drinking_fountains,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'bathing_water'), 0)::int AS bathing_waters,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'toilet'), 0)::int AS toilets,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'playground'), 0)::int AS playgrounds,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'sports_facility'), 0)::int AS sports_facilities,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'kita'), 0)::int AS kitas,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'hospital'), 0)::int AS hospitals,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'cemetery'), 0)::int AS cemeteries,
+  COALESCE(SUM(s.feature_count) FILTER (WHERE s.kind_code = 'park_and_ride'), 0)::int AS park_and_ride
 FROM districts d
-ORDER BY d.name;
+LEFT JOIN borough_amenity_stats s ON s.district_id = d.id
+GROUP BY ROLLUP ((d.id, d.name))
+ORDER BY GROUPING(d.id), d.name;
