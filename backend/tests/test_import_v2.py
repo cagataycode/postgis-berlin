@@ -11,6 +11,9 @@ from scripts.sources import CATALOG, upsert_catalog
 from scripts.import_v2 import (
     SPECS,
     InjectedFailure,
+    _finish_run,
+    _start_run,
+    close_stale_runs,
     apply_layer,
     clean_text,
     ev_extras,
@@ -276,3 +279,46 @@ def test_tree_species_lookup_and_unknown_height(session):
     assert _scalar(session, "SELECT count(*) FROM tree_species WHERE botanical_name='Acer pseudoplatanus'") == 1
     assert _scalar(session, "SELECT count(*) FROM tree_detail WHERE kind_code='street_tree' AND height_m IS NULL") >= 1
     assert _scalar(session, "SELECT count(DISTINCT species_id) FROM tree_detail WHERE kind_code='street_tree'") == 1
+
+
+@pytest.mark.db
+def test_stale_running_rows_are_closed_but_finished_ones_are_kept(session):
+    cat = session.execute(
+        text("INSERT INTO dataset_catalog (slug, name) VALUES ('test-stale', 'test') RETURNING id")
+    ).scalar_one()
+    for status in ("running", "running", "committed", "failed"):
+        session.execute(text("INSERT INTO import_run (catalog_id, status) VALUES (:c, :s)"), {"c": cat, "s": status})
+    assert close_stale_runs(session, cat) == 2
+    rows = dict(
+        session.execute(text("SELECT status, count(*) FROM import_run WHERE catalog_id = :c GROUP BY 1"), {"c": cat}).all()
+    )
+    assert rows == {"failed": 3, "committed": 1}
+    err = _scalar(session, "SELECT error FROM import_run WHERE catalog_id = :c AND error LIKE 'abandoned%' LIMIT 1", c=cat)
+    assert "abandoned" in err
+    assert close_stale_runs(session, cat) == 0
+
+
+@pytest.mark.db
+def test_start_run_closes_a_dead_run_and_refuses_a_live_one():
+    """Uses committed rows (separate connections), cleaned up at the end."""
+    with engine.begin() as c:
+        if c.execute(text("SELECT to_regclass('public.import_run')")).scalar() is None:
+            pytest.skip("schema v2 not migrated")
+        cat = c.execute(
+            text("INSERT INTO dataset_catalog (slug, name) VALUES ('test-lock', 'test') RETURNING id")
+        ).scalar_one()
+        dead = c.execute(text("INSERT INTO import_run (catalog_id) VALUES (:c) RETURNING id"), {"c": cat}).scalar_one()
+    try:
+        run = _start_run(cat)  # takes the layer lock, closes the dead 'running' row
+        with engine.connect() as c:
+            assert c.execute(text("SELECT status FROM import_run WHERE id = :i"), {"i": dead}).scalar_one() == "failed"
+            assert c.execute(text("SELECT status FROM import_run WHERE id = :i"), {"i": run}).scalar_one() == "running"
+        with pytest.raises(SystemExit):  # a second start while the first is live
+            _start_run(cat)
+        _finish_run(run, "committed", {"inserted": 0, "updated": 0, "deleted": 0}, None)  # releases the lock
+        again = _start_run(cat)  # works again after release
+        _finish_run(again, "committed", None, None)
+    finally:
+        with engine.begin() as c:
+            c.execute(text("DELETE FROM import_run WHERE catalog_id = :c"), {"c": cat})
+            c.execute(text("DELETE FROM dataset_catalog WHERE id = :c"), {"c": cat})

@@ -712,32 +712,79 @@ def apply_neighborhoods(session, features: list[dict], catalog_id: int) -> dict:
 V2_LAYERS = ["districts", "neighborhoods", *[l for l in DEFAULT_ORDER if l in SPECS]]
 
 
+# One advisory lock per layer, held on a dedicated connection for the whole layer import.
+# It tells a new run whether an older `running` row belongs to a live process or to one
+# that died (Ctrl-C, killed, lost connection) and can be closed.
+_LOCK_CLASS = 7_2024
+_run_locks: dict[int, tuple[object, int]] = {}  # run_id -> (connection, catalog_id)
+
+
+def close_stale_runs(conn, catalog_id: int) -> int:
+    """Mark leftover `running` rows of this layer as failed; return how many were closed."""
+    return conn.execute(
+        text(
+            """
+            UPDATE import_run
+            SET status = 'failed', finished_at = now(),
+                error = 'abandoned: process ended without finishing (closed by the next run)'
+            WHERE catalog_id = :c AND status = 'running'
+            """
+        ),
+        {"c": catalog_id},
+    ).rowcount
+
+
 def _start_run(catalog_id: int) -> int:
+    lock_conn = engine.connect()
+    got = lock_conn.execute(
+        text("SELECT pg_try_advisory_lock(:k, :c)"), {"k": _LOCK_CLASS, "c": catalog_id}
+    ).scalar()
+    if not got:
+        lock_conn.close()
+        raise SystemExit(f"another import of this layer (catalog {catalog_id}) is already running")
+    lock_conn.commit()
     with SessionLocal() as s:
+        closed = close_stale_runs(s, catalog_id)
         run_id = s.execute(
             text("INSERT INTO import_run (catalog_id) VALUES (:c) RETURNING id"), {"c": catalog_id}
         ).scalar_one()
         s.commit()
+    if closed:
+        print(f"closed {closed} stale 'running' import_run row(s) for catalog {catalog_id}", flush=True)
+    _run_locks[run_id] = (lock_conn, catalog_id)
     return run_id
+
+
+def _release_run_lock(run_id: int) -> None:
+    held = _run_locks.pop(run_id, None)
+    if held is not None:
+        lock_conn, catalog_id = held
+        # Unlock explicitly: close() only returns a pooled connection, the lock would survive it.
+        lock_conn.execute(text("SELECT pg_advisory_unlock(:k, :c)"), {"k": _LOCK_CLASS, "c": catalog_id})
+        lock_conn.commit()
+        lock_conn.close()
 
 
 def _finish_run(run_id: int, status: str, counts: dict | None, error: str | None) -> None:
     counts = counts or {}
-    with SessionLocal() as s:
-        s.execute(
-            text(
-                """
-                UPDATE import_run SET finished_at = now(), status = :status,
-                  rows_inserted = :i, rows_updated = :u, rows_deleted = :d, error = :e
-                WHERE id = :id
-                """
-            ),
-            {
-                "status": status, "id": run_id, "e": error,
-                "i": counts.get("inserted"), "u": counts.get("updated"), "d": counts.get("deleted"),
-            },
-        )
-        s.commit()
+    try:
+        with SessionLocal() as s:
+            s.execute(
+                text(
+                    """
+                    UPDATE import_run SET finished_at = now(), status = :status,
+                      rows_inserted = :i, rows_updated = :u, rows_deleted = :d, error = :e
+                    WHERE id = :id
+                    """
+                ),
+                {
+                    "status": status, "id": run_id, "e": error,
+                    "i": counts.get("inserted"), "u": counts.get("updated"), "d": counts.get("deleted"),
+                },
+            )
+            s.commit()
+    finally:
+        _release_run_lock(run_id)
 
 
 def import_layer(layer: str, source: str, fail_after_rows: int | None = None) -> dict:

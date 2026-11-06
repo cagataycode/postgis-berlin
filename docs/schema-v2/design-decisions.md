@@ -109,9 +109,9 @@ How to read each entry: **Decision** · **Alternatives we rejected** and why · 
 
 **Alternatives.** Write the audit row inside the import transaction. Rejected: a failed import rolls back, and the record of the failure would roll back with it.
 
-**Evidence.** A rollback demo (`--fail-after-rows`) leaves the row counts unchanged and an `import_run` row with `failed` and the error text. 38 rows exist after the full project load: 35 committed, 3 failed.
+**Evidence.** A rollback demo (`--fail-after-rows`) leaves the row counts unchanged and an `import_run` row with `failed` and the error text. After the full project load: 35 committed, 3 failed.
 
-**Cost.** Interrupted processes can leave a row stuck at `running`; closing stale rows at the start of a run is open work.
+**Cost.** An interrupted process leaves its row at `running`. The next import of that layer closes it as `failed` (`abandoned: …`). A per-layer advisory lock tells a dead run from a live one, so two imports of the same layer cannot run at once.
 
 ## D11 — A read-only database role for the SQL playground
 
