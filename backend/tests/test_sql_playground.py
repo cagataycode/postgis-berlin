@@ -70,7 +70,8 @@ def test_validate_layer_geojson_sql():
 
     sql = render_layer_sql(LAYER_BY_SLUG["ev_chargers"])
     cleaned = _validate_select(sql)
-    assert "FROM ev_chargers" in cleaned
+    assert "FROM amenity_points" in cleaned
+    assert "kind_code = 'ev_charger'" in cleaned
 
 
 def test_get_sql_file():

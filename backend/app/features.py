@@ -11,28 +11,8 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.layer_registry import AREA_KINDS, KIND_BY_SLUG  # noqa: F401
 from app.models import AmenityArea, AmenityPoint, AmenityPointTag, TreeDetail
-
-# Legacy layer slug -> kind_code (phase 4 moves this into the registry).
-KIND_BY_SLUG: dict[str, str] = {
-    "green_spaces": "green_space",
-    "cemeteries": "cemetery",
-    "playgrounds": "playground",
-    "schools": "school",
-    "kitas": "kita",
-    "hospitals": "hospital",
-    "trees": "street_tree",
-    "park_trees": "park_tree",
-    "bike_parking": "bike_parking",
-    "ev_chargers": "ev_charger",
-    "drinking_fountains": "drinking_fountain",
-    "bathing_waters": "bathing_water",
-    "toilets": "toilet",
-    "sports_facilities": "sports_facility",
-    "park_and_ride": "park_and_ride",
-}
-AREA_KINDS = {"green_space", "cemetery", "playground"}
-
 
 def _num(v: Any) -> Any:
     return float(v) if hasattr(v, "as_tuple") else v

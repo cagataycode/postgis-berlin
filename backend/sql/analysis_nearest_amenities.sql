@@ -1,4 +1,6 @@
 -- Nearest amenity per layer from a WGS84 click point (EPSG:25833 metres).
+-- One LATERAL KNN (<->) per kind; the kind_code filter lets the planner prune
+-- amenity_points to a single partition for the two tree kinds.
 -- Params: :lon, :lat
 WITH pt AS (
   SELECT ST_Transform(
@@ -6,105 +8,47 @@ WITH pt AS (
     25833
   ) AS geom
 ),
-nearest_trees AS (
-  SELECT 'trees'::text AS layer, t.id, t.name, ST_Distance(t.geom, pt.geom) AS distance_m
-  FROM trees t, pt
-  ORDER BY t.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_park_trees AS (
-  SELECT 'park_trees'::text AS layer, pt_t.id, pt_t.name, ST_Distance(pt_t.geom, pt.geom) AS distance_m
-  FROM park_trees pt_t, pt
-  ORDER BY pt_t.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_bike AS (
-  SELECT 'bike_parking'::text AS layer, b.id, b.name, ST_Distance(b.geom, pt.geom) AS distance_m
-  FROM bike_parking b, pt
-  ORDER BY b.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_ev AS (
-  SELECT 'ev_chargers'::text AS layer, e.id, e.name, ST_Distance(e.geom, pt.geom) AS distance_m
-  FROM ev_chargers e, pt
-  ORDER BY e.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_fountains AS (
-  SELECT 'drinking_fountains'::text AS layer, f.id, f.name, ST_Distance(f.geom, pt.geom) AS distance_m
-  FROM drinking_fountains f, pt
-  ORDER BY f.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_bathing AS (
-  SELECT 'bathing_waters'::text AS layer, w.id, w.name, ST_Distance(w.geom, pt.geom) AS distance_m
-  FROM bathing_waters w, pt
-  ORDER BY w.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_toilets AS (
-  SELECT 'toilets'::text AS layer, o.id, o.name, ST_Distance(o.geom, pt.geom) AS distance_m
-  FROM toilets o, pt
-  ORDER BY o.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_playgrounds AS (
-  SELECT 'playgrounds'::text AS layer, p.id, p.name, ST_Distance(p.geom, pt.geom) AS distance_m
-  FROM playgrounds p, pt
-  ORDER BY p.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_sports AS (
-  SELECT 'sports_facilities'::text AS layer, sf.id, sf.name, ST_Distance(sf.geom, pt.geom) AS distance_m
-  FROM sports_facilities sf, pt
-  ORDER BY sf.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_kitas AS (
-  SELECT 'kitas'::text AS layer, k.id, k.name, ST_Distance(k.geom, pt.geom) AS distance_m
-  FROM kitas k, pt
-  ORDER BY k.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_hospitals AS (
-  SELECT 'hospitals'::text AS layer, h.id, h.name, ST_Distance(h.geom, pt.geom) AS distance_m
-  FROM hospitals h, pt
-  ORDER BY h.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_cemeteries AS (
-  SELECT 'cemeteries'::text AS layer, c.id, c.name, ST_Distance(c.geom, pt.geom) AS distance_m
-  FROM cemeteries c, pt
-  ORDER BY c.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_pr AS (
-  SELECT 'park_and_ride'::text AS layer, pr.id, pr.name, ST_Distance(pr.geom, pt.geom) AS distance_m
-  FROM park_and_ride pr, pt
-  ORDER BY pr.geom <-> pt.geom
-  LIMIT 1
-),
-nearest_green AS (
-  SELECT 'green_spaces'::text AS layer, g.id, g.name, ST_Distance(g.geom, pt.geom) AS distance_m
-  FROM green_spaces g, pt
-  ORDER BY g.geom <-> pt.geom
-  LIMIT 1
+kinds(layer, kind_code, family) AS (
+  VALUES
+    ('trees', 'street_tree', 'point'),
+    ('park_trees', 'park_tree', 'point'),
+    ('bike_parking', 'bike_parking', 'point'),
+    ('ev_chargers', 'ev_charger', 'point'),
+    ('drinking_fountains', 'drinking_fountain', 'point'),
+    ('bathing_waters', 'bathing_water', 'point'),
+    ('toilets', 'toilet', 'point'),
+    ('sports_facilities', 'sports_facility', 'point'),
+    ('kitas', 'kita', 'point'),
+    ('hospitals', 'hospital', 'point'),
+    ('park_and_ride', 'park_and_ride', 'point'),
+    ('playgrounds', 'playground', 'area'),
+    ('cemeteries', 'cemetery', 'area'),
+    ('green_spaces', 'green_space', 'area')
 ),
 nearest AS (
-  SELECT * FROM nearest_trees
-  UNION ALL SELECT * FROM nearest_park_trees
-  UNION ALL SELECT * FROM nearest_bike
-  UNION ALL SELECT * FROM nearest_ev
-  UNION ALL SELECT * FROM nearest_fountains
-  UNION ALL SELECT * FROM nearest_bathing
-  UNION ALL SELECT * FROM nearest_toilets
-  UNION ALL SELECT * FROM nearest_playgrounds
-  UNION ALL SELECT * FROM nearest_sports
-  UNION ALL SELECT * FROM nearest_kitas
-  UNION ALL SELECT * FROM nearest_hospitals
-  UNION ALL SELECT * FROM nearest_cemeteries
-  UNION ALL SELECT * FROM nearest_pr
-  UNION ALL SELECT * FROM nearest_green
+  SELECT k.layer, n.id, n.name, n.distance_m
+  FROM kinds k
+  CROSS JOIN pt
+  CROSS JOIN LATERAL (
+    SELECT p.id, p.name, ST_Distance(p.geom, pt.geom) AS distance_m
+    FROM amenity_points p
+    WHERE p.kind_code = k.kind_code
+    ORDER BY p.geom <-> pt.geom
+    LIMIT 1
+  ) n
+  WHERE k.family = 'point'
+  UNION ALL
+  SELECT k.layer, n.id, n.name, n.distance_m
+  FROM kinds k
+  CROSS JOIN pt
+  CROSS JOIN LATERAL (
+    SELECT a.id::bigint AS id, a.name, ST_Distance(a.geom, pt.geom) AS distance_m
+    FROM amenity_areas a
+    WHERE a.kind_code = k.kind_code
+    ORDER BY a.geom <-> pt.geom
+    LIMIT 1
+  ) n
+  WHERE k.family = 'area'
 )
 SELECT jsonb_build_object(
   'lon', CAST(:lon AS double precision),

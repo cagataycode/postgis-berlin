@@ -1,5 +1,5 @@
 -- Mapped public green by borough (parks/green polygons only — geometry area).
--- Uses centroid assignment via district_id set at import.
+-- district_id was set at import (point-on-surface of each polygon).
 SELECT
   d.id AS district_id,
   d.name AS district_name,
@@ -11,6 +11,6 @@ SELECT
     ELSE 0
   END AS pct_of_district_area
 FROM districts d
-LEFT JOIN green_spaces g ON g.district_id = d.id
+LEFT JOIN amenity_areas g ON g.district_id = d.id AND g.kind_code = 'green_space'
 GROUP BY d.id, d.name, d.geom
 ORDER BY d.name;

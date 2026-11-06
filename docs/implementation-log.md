@@ -151,3 +151,25 @@ Each decision in the plan came from a check on the real data or code, not from p
 - The first full run took ~2 min on the loaded database (constraint and import tests).
 - `/features/...` for the 15 amenity layers now needs the v2 data; a database that holds only legacy tables returns 404 until the phase 4 cutover of the layer endpoints.
 **Report/demo material:** the "ORM vs. SQL" rule; association object because the junction has extra key columns.
+
+### Phase 4 — API and analyses port (2026-11-06)
+
+**Goal:** serve every endpoint from the v2 tables, port the four analyses, add the tag filter (U7), the operator report (U8) and tree statistics.
+**What we did:**
+- [layer_registry.py](../backend/app/layer_registry.py): `LayerDef` gets `kind_code`, `extra_src` and `taggable`; the table is `amenity_points` or `amenity_areas`, and the generated SQL filters `kind_code = '…'`. URL paths and property names are unchanged (D12), so the frontend still works. `KIND_BY_SLUG` and `AREA_KINDS` now live here.
+- Ported to v2: nearest amenities (one `LATERAL` KNN per kind from a `VALUES` list), green by borough, school–green proximity.
+- Density by borough reads the materialized view `borough_amenity_stats` and pivots kinds with `FILTER`; `GROUP BY ROLLUP` adds a "Berlin (total)" row.
+- **U7:** `?tag=<id>` (repeatable) on EV chargers, kitas and toilets with AND semantics (`GROUP BY … HAVING count(*) = n`); other layers answer 400. `GET /tags?kind=` lists the vocabulary with usage counts (ORM). `GET /amenities/near` calls the new SQL function `amenities_near(lon, lat, radius_m, kind, tag_ids[])`.
+- **U8:** `GET /analyses/operators` (CTE + `rank() OVER (PARTITION BY district …)`, kita capacity from `kita_detail`). `GET /analyses/trees-by-borough` (`COUNT(DISTINCT species)`, `percentile_cont`, `mode() WITHIN GROUP`).
+- Migration [0010_v2_analytics.py](../backend/alembic/versions/0010_v2_analytics.py): the function and the view, with grants for `berlin_ro`. The importer refreshes the view after `ANALYZE`. The legacy-table drop becomes a later migration (phase 6).
+- [test_api_v2.py](../backend/tests/test_api_v2.py): 10 tests on real data.
+**How we decided:**
+- Keep the wide per-borough response shape and layer slugs instead of the long ROLLUP shape, so the frontend needs no change in this phase.
+- Trees use `name` (German species) for the old `species` property, because `subtype` is empty for trees.
+- Counts for density come from a materialized view so the page does not scan 980k rows; the cost is that it is stale until the next import.
+**Outcome (on `schema_v2_real`):** every layer endpoint returns data from v2; nearest amenities 0.7 s; density 0.04 s; green 0.1 s; school proximity 0.9 s; operators 0.1 s; `amenities_near` 0.06 s. EV chargers in a Berlin-centre bbox: 2,376 → 752 with one tag → 18 with two tags.
+**Problems / changes to plan:**
+- `trees-by-borough` takes ~10 s: it sorts 962k rows for two ordered-set aggregates. Left as is; phase 7 measures it (candidates: a materialized view, or computing medians on a sample).
+- The old `/layers/{slug}/sql` tests assumed per-layer tables; they now assert `amenity_points` and the `kind_code` filter.
+- `feature_by_id.sql` is only used for districts and neighborhoods now.
+**Report/demo material:** the SQL files (LATERAL KNN, ROLLUP, `rank()`, `percentile_cont`, `mode()`), the tag AND-filter numbers, `amenities_near`.

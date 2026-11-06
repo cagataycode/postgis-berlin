@@ -12,12 +12,13 @@ from app.db import get_db
 from app.layer_registry import (
     LAYER_BY_SLUG,
     LAYER_SQL_NAME,
+    KIND_BY_SLUG,
     LAYERS,
     LayerDef,
     MAX_FILTERED_BBOX_SPAN_DEG,
     render_layer_sql,
 )
-from app.features import KIND_BY_SLUG, get_feature as get_orm_feature
+from app.features import get_feature as get_orm_feature
 from app.models import DatasetCatalog, District
 from app.sql_loader import load_sql
 
@@ -83,15 +84,18 @@ def _make_layer_endpoint(layer: LayerDef) -> Callable[..., dict[str, Any]]:
     def get_layer_features(
         bbox: str | None = Query(None, description="minLon,minLat,maxLon,maxLat"),
         district_id: int | None = Query(None),
+        tag: list[int] | None = Query(None, description="tag id; repeat for AND"),
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
+        if tag and not layer.taggable:
+            raise HTTPException(status_code=400, detail=f"{layer.slug} has no tags")
         if layer.requires_filter and bbox is None and district_id is None:
             raise HTTPException(
                 status_code=400,
                 detail=f"{layer.slug} requires bbox and/or district_id (citywide dump blocked)",
             )
         _reject_oversized_bbox(layer, bbox)
-        return _geojson(db, layer, bbox=bbox, district_id=district_id)
+        return _geojson(db, layer, bbox=bbox, district_id=district_id, tags=tag)
 
     get_layer_features.__name__ = f"get_{layer.slug}"
     return get_layer_features
@@ -145,8 +149,13 @@ def _geojson(
     layer: LayerDef,
     bbox: str | None = None,
     district_id: int | None = None,
+    tags: list[int] | None = None,
 ) -> dict[str, Any]:
     params: dict[str, Any] = _parse_bbox(bbox)
+    if layer.taggable:
+        ids = sorted(set(tags or []))
+        params["tag_ids"] = ids
+        params["n_tags"] = len(ids)
     sql = render_layer_sql(layer)
     if ":district_id" in sql:
         params["district_id"] = district_id
