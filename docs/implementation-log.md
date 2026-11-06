@@ -132,3 +132,22 @@ Each decision in the plan came from a check on the real data or code, not from p
 - Plan said ~1.1k species; measured 916.
 **Open / measured later:** a tree layer takes 12–14.5 min to load; the CPU-bound insert maintains ~6 indexes incl. a GIN on `attrs` (123 MB on street trees). Phase 7 compares 50k-row loads with and without that GIN index; likely outcome is keeping it only on `amenity_points_other`. `--fail-after-rows` was exercised on samples only.
 **Report/demo material:** idempotency checksums, rollback demo, per-layer timing table, district-derivation story (three attempts, numbers).
+
+### Phase 3 — ORM models and data layer (2026-11-06)
+
+**Goal:** map all v2 tables in the ORM and serve one feature with its tags, operator and detail through it.
+**What we did:**
+- [models.py](../backend/app/models.py): removed the 15 legacy layer models; added `AmenityKind`, `Operator`, `TreeSpecies`, `TagCategory`, `Tag`, `KindTagCategory`, `AmenityPoint` (partitioned parent, composite PK `(id, kind_code)`), `AmenityArea`, `AmenityPointTag`, `TreeDetail`, `KitaDetail`, `EvChargerDetail`, `ImportRun`. Composite FKs are declared as `ForeignKeyConstraint` pairs.
+- `AmenityPointTag` is an **association object**, because the junction carries `kind_code` and `category_code`. `AmenityPoint.tags` is a read-only convenience relationship through it. Detail tables are 1:1 (`uselist=False`).
+- New [features.py](../backend/app/features.py): `get_feature(db, kind_code, id)` loads the point, operator, tags and detail with `joinedload`/`selectinload` and filters on `kind_code` so the planner prunes to one partition. `GET /features/{layer}/{id}` uses it for the 15 amenity layers; districts and neighborhoods keep the plain SQL path.
+- [db.py](../backend/app/db.py): second engine `engine_ro` (role `berlin_ro`); `POST /sql/run` now uses it, so the playground is read-only by privilege, not only by the Python SELECT check.
+- [test_orm_models.py](../backend/tests/test_orm_models.py): 7 tests (mappers configure, tags via association object, 1:1 detail, endpoint payload, wrong kind → 404, `berlin_ro` cannot write).
+**How we decided:**
+- **ORM for entity reads and relationships; SQL files for spatial and analytical queries** (KNN, aggregates, windows). Geometry output stays `ST_AsGeoJSON` in the query.
+- Layer slug → `kind_code` lives in `features.py` for now; phase 4 moves it into the registry.
+**Outcome (on `schema_v2_real`):** kita returns operator + capacity; EV charger returns operator, connector tag and power/date detail; street tree returns species (botanical, German, genus) and sizes. Full suite: 67 tests, all pass.
+**Problems / changes to plan:**
+- The suite had one test from phase 1 that counted every row in `amenity_point_tag`, so it failed on a loaded database (10,040 rows). It now counts only its own point.
+- The first full run took ~2 min on the loaded database (constraint and import tests).
+- `/features/...` for the 15 amenity layers now needs the v2 data; a database that holds only legacy tables returns 404 until the phase 4 cutover of the layer endpoints.
+**Report/demo material:** the "ORM vs. SQL" rule; association object because the junction has extra key columns.

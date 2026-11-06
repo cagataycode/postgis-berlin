@@ -17,6 +17,7 @@ from app.layer_registry import (
     MAX_FILTERED_BBOX_SPAN_DEG,
     render_layer_sql,
 )
+from app.features import KIND_BY_SLUG, get_feature as get_orm_feature
 from app.models import DatasetCatalog, District
 from app.sql_loader import load_sql
 
@@ -110,6 +111,13 @@ def get_feature(layer: str, feature_id: int, db: Session = Depends(get_db)) -> d
     layer_def = LAYER_BY_SLUG.get(layer)
     if layer_def is None:
         raise HTTPException(status_code=404, detail="Unknown layer")
+    kind = KIND_BY_SLUG.get(layer)
+    if kind is not None:
+        feature = get_orm_feature(db, kind, feature_id)
+        if feature is None:
+            raise HTTPException(status_code=404, detail="Feature not found")
+        return feature
+    # districts / neighborhoods keep the plain SQL path
     sql = load_sql("feature_by_id.sql").format(table=layer_def.table)
     row = db.execute(text(sql), {"id": feature_id}).scalar()
     if row is None:

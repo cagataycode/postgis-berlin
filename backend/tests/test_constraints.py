@@ -161,7 +161,12 @@ def test_junction_rows_cascade_with_point(conn):
         {"p": pid, "t": tid},
     )
     conn.execute(text("DELETE FROM amenity_points WHERE id = :p"), {"p": pid})
-    assert conn.execute(text("SELECT count(*) FROM amenity_point_tag")).scalar() == 0
+    assert (
+        conn.execute(
+            text("SELECT count(*) FROM amenity_point_tag WHERE point_id = :p"), {"p": pid}
+        ).scalar()
+        == 0
+    )
 
 
 def test_detail_row_for_wrong_kind_rejected(conn):

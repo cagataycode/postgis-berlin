@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.db import get_db
+from app.db import get_db_ro
 from app.sql_loader import SQL_DIR, load_sql
 
 router = APIRouter(prefix="/sql", tags=["sql"])
@@ -166,7 +166,7 @@ def _geojson_from_rows(columns: list[str], rows: list[list[Any]]) -> dict[str, A
 
 
 @router.post("/run")
-def run_sql(body: RunSqlBody, db: Session = Depends(get_db)) -> dict[str, Any]:
+def run_sql(body: RunSqlBody, db: Session = Depends(get_db_ro)) -> dict[str, Any]:
     cleaned = _validate_select(body.sql)
     query = f"EXPLAIN (ANALYZE, BUFFERS)\n{cleaned}" if body.explain else cleaned
 
