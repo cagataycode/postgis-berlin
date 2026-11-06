@@ -6,6 +6,8 @@ PostGIS learning app: **mapped Berlin open-data amenities** — parks, trees, da
 
 **Data:** 100% official Berlin open data (daten.berlin.de / Geoportal Berlin WFS) — full source list with links and licenses: [docs/data-sources.md](docs/data-sources.md)
 
+**Context:** hand-in for the university Databases module. Solo project: all parts (schema, importer, API, frontend, operations, documentation) were designed and written by the author.
+
 Product docs: [docs/overview.md](docs/overview.md) · [mvp-scope](docs/mvp-scope.md) · [data-sources](docs/data-sources.md) · [technical-requirements](docs/technical-requirements.md)
 
 ## Quick start
@@ -66,15 +68,42 @@ Design docs: [docs/schema-v2/](docs/schema-v2/README.md) (ERD, normalization, in
 
 The database refuses inconsistent data (an area kind in the points table, a Kita tag on a toilet, a duplicate source key, a zero tree height): see `backend/tests/test_constraints.py`. All geometries EPSG:25833; sources per layer: [docs/data-sources.md](docs/data-sources.md). Each feature keeps its raw source properties in `attrs` (jsonb) for provenance.
 
-## Analyses
+## Use cases
 
-1. **Nearest amenities** — `GET /analyses/nearest-amenities?lon=&lat=` (one KNN per kind)
-2. **Amenity density by borough** — counts per district, with a city total (`ROLLUP`)
-3. **Green by borough** — mapped park area share
-4. **School–green proximity** — median / p90 distance per borough
-5. **Tag filter** — `GET /ev-chargers?tag=<id>&tag=<id>` (AND), `GET /tags?kind=`, `GET /amenities/near`
-6. **Operators** — `GET /analyses/operators` (top operators per borough, Kita capacity)
-7. **Tree statistics** — `GET /analyses/trees-by-borough` (species diversity, median year, top genus)
+| # | Use case | Status | Where |
+| --- | --- | --- | --- |
+| U1 | Show amenity layers on a map (bbox filter, zoom-gated trees) | implemented | `GET /<layer>` |
+| U2 | Click the map → nearest amenity of each kind (KNN) | implemented | `GET /analyses/nearest-amenities` |
+| U3 | Amenity counts per borough, with a city total | implemented | `GET /analyses/amenity-density-by-borough` |
+| U4 | Park area share per borough | implemented | `GET /analyses/green-by-borough` |
+| U5 | School → nearest park distance (median / p90) | implemented | `GET /analyses/school-green-proximity` |
+| U6 | Read-only SQL playground with Explain (as database role `berlin_ro`) | implemented | `POST /sql/run` |
+| U7 | Filter by tag: EV chargers by connector type, Kitas by approach, toilets by feature; radius search with tags | implemented | `?tag=` on the layer endpoints, `GET /tags`, `GET /amenities/near` |
+| U8 | Operator report: largest operators per borough, Kita capacity; tree statistics per borough | implemented | `GET /analyses/operators`, `GET /analyses/trees-by-borough` |
+| U9 | Provenance: source, licence, vintage and caveats per layer; one feature with operator, tags and typed detail | implemented | `GET /layers`, `GET /features/{layer}/{id}` |
+
+Not implemented: editing data through the app (imports are offline scripts; the API only reads), user accounts, routing/walking distances (all distances are straight-line metres).
+
+## Data
+
+All data is **real open data, nothing is generated**: Berlin boundaries and amenity inventories from Geoportal Berlin WFS and daten.berlin.de (sources and licences: [docs/data-sources.md](docs/data-sources.md)). Counts after a full import (`python -m scripts.import_v2`, 17 layers; database size 1.4 GB):
+
+| Table | Rows |
+| --- | ---: |
+| `amenity_points` | 975,765 (street trees 434,765 · park trees 527,780 · EV chargers 4,960 · Kitas 2,905 · bike parking 2,374 · sports 1,085 · schools 930 · toilets 525 · fountains 242 · hospitals 111 · P+R 49 · bathing waters 39) |
+| `amenity_areas` | 4,675 (parks 2,563 · playgrounds 1,886 · cemeteries 226) |
+| `districts` / `neighborhoods` | 12 / 97 |
+| `tree_detail` / `tree_species` | 962,545 / 916 |
+| `kita_detail` / `ev_charger_detail` | 2,905 / 4,960 |
+| `operator` | 1,404 |
+| `tag` / `amenity_point_tag` | 19 / 10,040 |
+| **Features in total** | **980,440** (plus 17 catalog rows and an `import_run` audit row per import) |
+
+Each import is idempotent: running it again reports 0 inserted / 0 updated / 0 deleted and leaves every id unchanged.
+
+## Entity-relationship model
+
+[docs/schema-v2/erd.md](docs/schema-v2/erd.md) (Mermaid, with cardinalities, keys and indexes). Normalization argument: [normalization.md](docs/schema-v2/normalization.md). Why each design choice, with alternatives and measurements: [design-decisions.md](docs/schema-v2/design-decisions.md). Measured query plans: [indexing-and-explain.md](docs/schema-v2/indexing-and-explain.md).
 
 ## Tests
 
