@@ -780,9 +780,10 @@ def analyze(layers: list[str]) -> None:
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         for t in sorted(tables | extra):
             conn.execute(text(f"ANALYZE {t}"))
-        # borough_amenity_stats (migration 0010) feeds the density analysis.
-        if conn.execute(text("SELECT to_regclass('borough_amenity_stats')")).scalar() is not None:
-            conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY borough_amenity_stats"))
+        # borough_amenity_stats (0010) and borough_tree_stats (0012) feed the analyses.
+        for view in ("borough_amenity_stats", "borough_tree_stats"):
+            if conn.execute(text("SELECT to_regclass(:v)"), {"v": view}).scalar() is not None:
+                conn.execute(text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}"))
 
 
 def main() -> None:

@@ -96,10 +96,10 @@ def trees_by_borough(db: Session = Depends(get_db)) -> dict[str, Any]:
     return {
         "id": "trees-by-borough",
         "title": "Tree statistics by borough",
-        "inputs": ["tree_detail", "tree_species", "amenity_points", "districts"],
+        "inputs": ["borough_tree_stats", "tree_detail", "tree_species", "amenity_points"],
         "operation": (
-            "COUNT(DISTINCT species_id), percentile_cont(0.5) of planting_year and height, "
-            "mode() WITHIN GROUP genus per district"
+            "Materialized view: COUNT(DISTINCT species_id), percentile_cont(0.5) of planting_year "
+            "and height, mode() WITHIN GROUP genus per district"
         ),
         "units": {"tree_count": "trees", "median_planting_year": "year", "median_height_m": "m"},
         "crs": "EPSG:25833",

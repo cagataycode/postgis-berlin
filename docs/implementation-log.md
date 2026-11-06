@@ -211,3 +211,25 @@ Each decision in the plan came from a check on the real data or code, not from p
 - A fresh database creates the legacy tables in migrations 0002–0008 and drops them in 0011; accepted so the migration history stays replayable.
 - The merge of `feat/schema-v2` into `main` is left to the pull request (not done here).
 **Report/demo material:** the migration chain from empty database to v2, and the retired importer.
+
+### Phase 7 — Performance evidence (2026-11-06)
+
+**Goal:** back each indexing and partitioning decision with a measured plan, and fix what the measurements show.
+**What we did:**
+- [perf_evidence.py](../backend/scripts/perf_evidence.py) runs the experiments against the loaded database (980k features) and writes `EXPLAIN (ANALYZE, BUFFERS)` plans and timings to [docs/schema-v2/explain/](schema-v2/explain/) (7 files). Comparison copies live in a scratch schema `perf`, dropped at the end; real tables are only read.
+- [test_query_plans.py](../backend/tests/test_query_plans.py): 5 plan assertions (pruning to one partition, small kinds in the default partition, KNN without a sort, tag index, GIN usable).
+- Results and decisions are summarized in [indexing-and-explain.md](schema-v2/indexing-and-explain.md).
+**How we decided (warm timings):**
+- Partition pruning: 16.6 ms with the kind filter vs 36.0 ms without and 79.2 ms on one flat table → keep partitions.
+- Composite GiST `(kind_code, geom)` on the `other` partition: no gain, index twice as large → keep the plain GiST.
+- Tag junction `(tag_id, point_id)`: 0.1 vs 5.7 ms for a rare tag → keep.
+- GIN on `attrs`: 5.5 vs 389.6 ms on street trees, 1.1 vs 22.1 ms on EV chargers → keep.
+- KNN: `<->` 0.7 ms vs `ORDER BY ST_Distance` 2,029 ms.
+- GIN costs 1.7x on bulk load (14.6 s vs 8.4 s per 50k street-tree rows) and 138 MB. Kept; dropping it from the two tree partitions is the option if load time matters more than `attrs` searches on trees.
+**Outcome / change made:** the live `trees-by-borough` query took 10.7–11.2 s (88k pages, two sorts spilling to disk for the ordered-set aggregates; no index helps). It is now the materialized view `borough_tree_stats` (migration [0012](../backend/alembic/versions/0012_tree_stats_view.py)), refreshed at the end of every import: 0.1 ms per read. Compare tab tree measures now answer instantly.
+**Problems / changes to plan:**
+- Plan item 2 assumed `btree_gist`; it is not installed by the migration (the experiment creates it on the scratch database only). Not needed in production since the plain GiST wins.
+- On a 10k-row junction the saving for a common tag is small (16 vs 22 ms); the index matters for rare tags. Reported as measured.
+- Timings are from one laptop with 128 MB `shared_buffers`; absolute numbers will differ, ratios are what the report uses.
+**Report/demo material:** the seven plan files; the pruning plan (one node vs three), the KNN plan (no Sort node), the tree-report before/after.
+Full suite on the real-data database after phase 7: 83 passed.

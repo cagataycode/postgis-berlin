@@ -1022,7 +1022,7 @@ export default function App() {
       api.operators(1).then(setOperatorStats).catch(() => undefined);
     }
     if ((compareMeasure === "tree_species" || compareMeasure === "tree_year") && !treeStats) {
-      // ~10 s on the full inventory: fetched only when one of the tree measures is opened.
+      // Served from a materialized view; fetched only when a tree measure is opened.
       api.treesByBorough().then(setTreeStats).catch(() => undefined);
     }
   }, [taskTab, compareMeasure, operatorStats, treeStats]);

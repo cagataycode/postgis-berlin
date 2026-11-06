@@ -99,3 +99,16 @@ def test_green_and_school_proximity():
 def test_playground_read_only_role_can_read_new_objects():
     res = client.post("/sql/run", json={"sql": "SELECT count(*) FROM borough_amenity_stats"})
     assert res.status_code == 200
+
+
+def test_tree_report_reads_the_materialized_view():
+    import time
+
+    t = time.time()
+    res = client.get("/analyses/trees-by-borough")
+    assert res.status_code == 200
+    rows = res.json()["results"]
+    if not rows:
+        pytest.skip("borough_tree_stats is empty (no trees imported)")
+    assert time.time() - t < 2, "report must not recompute 960k trees per request"
+    assert all(r["species_count"] > 0 and r["tree_count"] > 0 for r in rows)
