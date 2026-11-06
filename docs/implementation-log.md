@@ -268,3 +268,7 @@ Full suite on the real-data database after phase 7: 83 passed.
 **Open work (small):** load the author's own `berlin` database with `alembic upgrade head` and `import_v2`.
 
 **Follow-up after phase 9 — stale `import_run` rows (2026-11-06):** `_start_run` now takes a per-layer advisory lock on a dedicated connection and closes any `running` row of that layer as `failed` (`abandoned: process ended without finishing`); a second live import of the same layer exits with a message. Two tests (`test_import_v2.py`): stale rows closed and finished ones kept; a dead run is closed, a live one refused, the lock is released after `_finish_run`. Bug found by the test: `Connection.close()` only returns a pooled connection, so the lock survived it; it is now released with `pg_advisory_unlock`. Checked on the real database: a hand-made stale row was closed and the toilets import then reported 0 inserted / 0 updated / 0 deleted, which also confirms the rows recovered in phase 8 equal the source.
+
+### One database (2026-11-06)
+
+The project uses a single PostgreSQL database: `berlin`, in the Docker container (port 5433, WAL archiving and backups from phase 8). The scratch database `schema_v2_real` that held the real-data work of phases 2–9 was renamed to `berlin` (no re-import); the empty Docker `berlin`, the scratch `schema_v2_mig` and the half-loaded Homebrew copy were dropped. Earlier log entries keep the old name `schema_v2_real` for what they measured. Local `.env` points at `localhost:5433/berlin` (`DATABASE_URL`, `DATABASE_URL_RO`, `POSTGRES_PORT`).
