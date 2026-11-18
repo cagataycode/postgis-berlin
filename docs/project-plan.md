@@ -6,7 +6,7 @@ One page that ties the module requirements ([module-requirements/](module-requir
 
 | Hand-in item | Where it lives | Status |
 | --- | --- | --- |
-| Repo access (read for `peterruppel`) | GitHub | **todo (author): grant access** |
+| Repo access (read for `peterruppel`) | [github.com/cagataycode/postgis-berlin](https://github.com/cagataycode/postgis-berlin) | done (repository is public, no grant needed) |
 | Working data layer serving the use cases | `backend/app/` (ORM models, feature loader), `backend/sql/` (analyses) | done |
 | Use cases, with implemented / not marked | [README.md](../README.md#use-cases), section 3 below | done |
 | README with dev + DB setup | [README.md](../README.md) | done |
