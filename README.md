@@ -134,6 +134,8 @@ The schema is the core of the project. The main ideas:
 
 The full ER model is in [docs/schema-v2/erd.md](docs/schema-v2/erd.md): 16 tables with cardinalities, primary and foreign keys, unique constraints and indexes. It has two many-to-many relationships: points ⟷ tags through `amenity_point_tag`, and amenity kinds ⟷ tag categories through `kind_tag_category`.
 
+The same model as an editable drawing: [docs/erd.excalidraw](docs/erd.excalidraw). Open it at [excalidraw.com](https://excalidraw.com) (menu → Open) or with the Excalidraw extension for VS Code. It has three frames: the full ER model, the many-to-many with real rows and its composite foreign keys, and the partitioning of `amenity_points` with measured timings.
+
 ### Measured design choices
 
 Design choices were measured, not assumed:
