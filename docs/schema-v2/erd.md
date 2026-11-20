@@ -1,6 +1,6 @@
 # ERD — schema v2
 
-16 tables (+ 3 partitions of `amenity_points`). Geometry SRID: **EPSG:25833**. DDL: [schema.sql](schema.sql), verified on PostGIS 16. Mermaid renders on GitHub; indexes and constraints Mermaid cannot draw are listed below the diagram.
+16 tables (+ 3 partitions of `amenity_points`). Geometry SRID: **EPSG:25833**. DDL: [schema.sql](schema.sql), verified on PostGIS 16. Mermaid renders on GitHub; indexes and constraints Mermaid cannot draw are listed below the diagram. The same model as a drawing with crow's-foot notation, keys, indexes and row counts: [../erd.excalidraw](../erd.excalidraw) (open at excalidraw.com).
 
 ```mermaid
 erDiagram
